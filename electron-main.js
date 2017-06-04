@@ -12,8 +12,9 @@ const url = require('url')
 let mainWindow
 
 function createWindow () {
+  BrowserWindow.addDevToolsExtension("/Users/nornagon/Library/Application Support/Google/Chrome/Default/Extensions/dfgplfmhhmdekalbpejekgfegkonjpfp/1.1.0_0")
   // Create the browser window.
-  mainWindow = new BrowserWindow({width: 800, height: 600})
+  mainWindow = new BrowserWindow({width: 800, height: 600, resizable: false})
 
   // and load the index.html of the app.
   mainWindow.loadURL(url.format(/*{

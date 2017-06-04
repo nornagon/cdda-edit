@@ -1,13 +1,16 @@
 import xs, { Stream } from 'xstream';
 import { VNode, DOMSource, svg, canvas, input } from '@cycle/dom';
+import isolate from '@cycle/isolate';
 import { StateSource } from 'cycle-onionify';
 
 import { Sources, Sinks } from './interfaces';
+import {IdSelector} from './IdSelector';
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as electron from 'electron';
 import * as glob from 'glob';
+import * as stringify from 'json-beautify';
 
 export type AppSources = Sources & { onion : StateSource<AppState> };
 export type AppSinks = Sinks & { onion : Stream<Reducer> };
@@ -16,11 +19,24 @@ export type AppState = {
   count : number;
 };
 
+/**
+ * source: --a--b----c----d---e-f--g----h---i--j-----
+ * first:  -------F------------------F---------------
+ * second: -----------------S-----------------S------
+ *                         between
+ * output: ----------c----d-------------h---i--------
+ */
+function between(first, second) {
+  return (source) => first.mapTo(source.endWhen(second)).flatten()
+}
+
+
+
 function loadCDDAData(root: string): any {
   const filenames = glob.sync(root + '/data/json/**/*.json', {nodir: true});
   const objects = Array.prototype.concat.apply([], filenames.map(fn => {
     const json = JSON.parse(fs.readFileSync(fn))
-    return Array.isArray(json) ? json : [json];
+    return (Array.isArray(json) ? json : [json]).map((x, i) => ({...x, _source: [fn, i]}));
   }));
   const tilesetConfigs = glob.sync(root + '/gfx/*/tile_config.json')
   const tilesets = tilesetConfigs.map(fn => {
@@ -36,94 +52,192 @@ function loadCDDAData(root: string): any {
   objects.filter(o => o.type === 'terrain').forEach(t => terrain[t.id] = t);
   const furniture = {};
   objects.filter(o => o.type === 'furniture').forEach(t => furniture[t.id] = t);
+
   return {objects, terrain, furniture, tilesets};
 }
 
 export function App(sources : AppSources) : AppSinks
 {
   const selectRoot$ = sources.DOM.select('.selectRoot').events('click').mapTo({dialog: 'open', category: 'cdda-root', options: {properties: ['openDirectory']}});
-  const action$ = intent(sources.DOM, sources.electron);
-  const vdom$ = view(sources.onion.state$);
+
+  /*const save$ = xs.combine(
+    sources.DOM.select('.save').events('click'),
+    sources.onion.state$
+  ).map(([e, state]) => {
+    const mapgen = {...state.mapgen};
+    delete mapgen._source;
+    const data = stringify([mapgen], null, 2, 100) + "\n";
+    return {
+      type: 'writeFile',
+      fileName: state.mapgen._source[0],
+      data
+    };
+  });*/
+
+  const selectorLens = {
+    get: state => ({cddaData: state.cddaData, ...state.editing, editingType: 'terrain', items: state.cddaData['terrain']}),
+    set: (state, childState) => {
+      const {cddaData: _, ...rest} = childState;
+      return {...state, editing: rest}
+    }
+  };
+
+  const {choose, ...selectorSinks} = isolate(IdSelector, {onion: selectorLens})(sources)
+
+  const {onion: action$, electron: electronAction$} = intent(sources.DOM, sources.electron, choose);
+
+  const vdom$ = view(sources.onion.state$.debug('state'), selectorSinks.DOM);
 
   return {
     DOM: vdom$,
-    onion: action$,
-    electron: selectRoot$
+    onion: xs.merge(action$, selectorSinks.onion),
+    electron: xs.merge(selectRoot$, electronAction$),
   };
 }
 
-function intent(DOM : DOMSource, electron) : Stream<Reducer>
+function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
 {
   const init$ = xs.of(() => {
     const cddaRoot = "/Users/nornagon/Source/Cataclysm-DDA";
     const cddaData = loadCDDAData(cddaRoot);
     const tileset = cddaData.tilesets.find(x => /ChestHoleTileset/.test(x.root))
+    electron.remote.getCurrentWindow().setContentSize(tileset.config.tile_info[0].width * (24 + 13), tileset.config.tile_info[0].height * 24)
     return {
       cddaRoot,
       cddaData,
       mapgen: cddaData.objects.filter(o => o.type === 'mapgen')[25],
       tileset,
-      selectedTerrainId: " ",
+      selectedSymbolId: " ",
     }
   });
 
-  const selectRoot$ = electron.map(e => state => {
+  const selectRoot$ = electro.map(e => state => {
     return ({...state, cddaRoot: e[0], cddaData: loadCDDAData(e[0])})
   })
 
-  const mousePos$ = DOM.select('canvas').events('mousemove').map(e => state => {
+  const mousePos$ = xs.merge(DOM.select('canvas.mapgen').events('mousemove'), DOM.select('canvas.mapgen').events('mouseout').map(e => null));
+
+  const mouseTilePos$ = mousePos$.map(e => state => {
     const {config: {tile_info: [{width, height}]}} = state.tileset
-    return {...state, mouseX: (e.offsetX / width)|0, mouseY: (e.offsetY / height)|0};
+    return {...state, mouseX: e ? (e.offsetX / width)|0 : null, mouseY: e ? (e.offsetY / height)|0 : null};
   })
 
   const selectTerrain$ = DOM.select('.terrain').events('change').map(e => state => {
-    return {...state, selectedTerrainId: e.target.terrainId};
+    return {...state, selectedSymbolId: e.target.symbolId};
   })
 
-  const drawTerrain$ = DOM.select('canvas').events('mousedown').map(e => state => {
+  const editSymbol$ = DOM.select('.editSymbol').events('click').map(e => state => {
+    return {...state, editingSymbol: state.selectedSymbolId, editing: {search: state.mapgen.object.terrain[state.selectedSymbolId], selectedIdx: 0}}
+  });
+
+  const updateSymbol$ = choose.map(chosenId => state => {
+    if (chosenId == null) return {...state, editingSymbol: null, editing: null};
+    return {...state,
+      editingSymbol: null,
+      editing: null,
+      mapgen: {...state.mapgen, object: {...state.mapgen.object, terrain: {...state.mapgen.object.terrain, [state.editingSymbol]: chosenId}}},
+    };
+  });
+
+  const drawTerrain$ = DOM.select('canvas.mapgen').events('mousedown').map(e => state => {
     const rows = [...state.mapgen.object.rows];
     const {config: {tile_info: [{width, height}]}} = state.tileset
     const tx = (e.offsetX/width)|0, ty = (e.offsetY/height)|0;
     let row = rows[ty];
-    row = row.substring(0, tx) + state.selectedTerrainId + row.substring(tx+1)
+    row = row.substring(0, tx) + state.selectedSymbolId + row.substring(tx+1)
     rows[ty] = row
-    console.log(row);
-    console.log(tx, ty);
     return {...state, mapgen: {...state.mapgen, object: {...state.mapgen.object, rows}}}
   })
 
-  return xs.merge(init$, selectRoot$, mousePos$, selectTerrain$, drawTerrain$);
+  const keys$ = DOM.select('document').events('keydown').map(e => state => {
+    if (e.key in state.mapgen.object.terrain || e.key == ' ')
+      return {...state, selectedSymbolId: e.key};
+    return state;
+  })
+
+  const addSymbol$ = DOM.select('.addSymbol').events('click').map(e => state => {
+    return {...state}
+  })
+
+  return {onion: xs.merge(init$, selectRoot$, mouseTilePos$, selectTerrain$, drawTerrain$, keys$, editSymbol$, updateSymbol$), electron: xs.empty()};
 }
 
-function view(state$ : Stream<AppState>) : Stream<VNode>
+function view(state$ : Stream<AppState>, modalVdom$) : Stream<VNode>
 {
-  return state$
-    .map(state =>
-      <div>
-      {state.cddaRoot == null
-        ? <button className='selectRoot'>Select CDDA root</button>
-        : renderMain(state)}
+  return xs.combine(state$, modalVdom$.startWith(null))
+    .map(([state, modalVdom]) => {
+      return <div>
+        {state.cddaRoot == null
+          ? <button className='selectRoot'>Select CDDA root</button>
+          : renderMain(state)}
+        {state.editingSymbol != null ? modalVdom : null}
       </div>
-    );
+    });
 }
+
+
+const terrainListStyle = {
+  display: 'flex',
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  margin: '0',
+  padding: '0',
+  listStyle: 'none',
+};
+
+function renderTerrainButton(cddaData, tileset, symbolId, terrainId, furnitureId, selected) {
+  return <label>
+    {input('.terrain', {attrs: {type: 'radio'}, props: {checked: selected, symbolId}, style: {display: 'none'}})}
+    {renderTile(cddaData, tileset, {terrainId, furnitureId, background: selected ? 'red' : 'black'})}
+  </label>;
+}
+
+function within(x, y, xrange, yrange) {
+  const [xLo, xHi] = Array.isArray(xrange) ? [Math.min.apply(null, xrange), Math.max.apply(null, xrange)] : [xrange, xrange];
+  const [yLo, yHi] = Array.isArray(yrange) ? [Math.min.apply(null, yrange), Math.max.apply(null, yrange)] : [yrange, yrange];
+  return x >= xLo && x <= xHi && y >= yLo && y <= yHi;
+}
+
 function renderMain(state) {
-  const terrains = Object.keys(state.mapgen.object.terrain);
+  const {cddaData, mapgen, mouseX, mouseY, tileset, selectedSymbolId} = state;
+  const terrains = Object.keys(mapgen.object.terrain);
   let hovered;
-  if (state.mouseX != null) {
+  if (mouseX != null) {
     hovered = {
-      terrain: state.mapgen.object.terrain[state.mapgen.object.rows[state.mouseY][state.mouseX]] || state.mapgen.object.fill_ter,
-      furniture: state.mapgen.object.furniture[state.mapgen.object.rows[state.mouseY][state.mouseX]]
+      terrain: mapgen.object.terrain[mapgen.object.rows[mouseY][mouseX]] || mapgen.object.fill_ter,
+      furniture: mapgen.object.furniture[mapgen.object.rows[mouseY][mouseX]],
+      loot: mapgen.object.place_loot.filter(loot => within(mouseX, mouseY, loot.x, loot.y))[0],
     }
   }
+  const selectedTerrain = selectedSymbolId === ' ' ? { terrain: mapgen.object.fill_ter } : {
+    terrain: mapgen.object.terrain[selectedSymbolId],
+    furniture: mapgen.object.furniture[selectedSymbolId],
+  };
+  const describeHovered = ({terrain, furniture, loot}) => {
+    const ter = cddaData.terrain[terrain];
+    const fur = cddaData.furniture[furniture];
+    const loo = loot ? ` (${loot.chance}% ${loot.group}${loot.repeat ? ' ' + loot.repeat.join('-') : ''})` : '';
+    return `${ter.name}${fur ? ` / ${fur.name}` : ''}${loo}`;
+  };
   return <div>
-    {/*<p>CDDA root: {state.cddaRoot}</p>*/}
-    {/*<p>Objects: {state.cddaData.objects.length} ({['mapgen', 'terrain', 'item_group', 'furniture'].map(ty => state.cddaData.objects.filter(o => o.type === ty).length + ` ${ty}s`).join(', ')})</p>*/}
-    <div>{terrains.map(tId =>
-      <span>{input('.terrain', {attrs: {type:'radio'}, props:{checked:tId === state.selectedTerrainId, terrainId: tId}})} {tId}</span>
-    )}</div>
-    {!!hovered &&
-      <p>Hovered: {hovered.terrain}{hovered.furniture && ` / ${hovered.furniture}`}</p>}
-    {renderMapgen(state.cddaData, state.mapgen, state.tileset, {mouseX: state.mouseX, mouseY: state.mouseY})}
+    <div style={{display: 'flex', flexDirection: 'row'}}>
+      <div>{renderMapgen(cddaData, mapgen, tileset, {mouseX: mouseX, mouseY: mouseY})}</div>
+      <div style={{marginLeft: `${tileset.config.tile_info[0].width}px`}}>
+        <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+          Hovered: {hovered ? describeHovered(hovered) : 'none'}
+        </div>
+        <ul className="symbols" style={terrainListStyle}>
+          {[' '].concat(terrains).map(tId =>
+            <li>{renderTerrainButton(cddaData, tileset, tId, mapgen.object.terrain[tId] || mapgen.object.fill_ter, mapgen.object.furniture[tId], selectedSymbolId === tId)}</li>
+          )}
+        </ul>
+        <button className='addSymbol'>add symbol</button>
+        <div className="brushProps">
+          <div>Terrain: <a className='editSymbol' href='#'>{selectedTerrain.terrain}</a></div>
+          <div>Furniture: {selectedTerrain.furniture}</div>
+        </div>
+      </div>
+    </div>
   </div>
 }
 
@@ -192,28 +306,6 @@ function renderMapgen(cddaData, mapgen, tileset, {mouseX, mouseY}) {
     ctx.drawImage(img, ix * tileWidth, iy * tileHeight, tileWidth, tileHeight, x * tileWidth, y * tileHeight, tileWidth, tileHeight)
   }
 
-  function mapColor(color: string): string {
-    switch (color) {
-      case "dkgray": return "BLACK-true"
-      case "red": return "RED-false"
-      case "ltred_green": return "RED-true"
-      case "green": return "GREEN-false"
-      case "ltgreen": return "GREEN-true"
-      case "brown": return "YELLOW-false"
-      case "blue": return "BLUE-false"
-      case "magenta": return "MAGENTA-false"
-      case "cyan": return "CYAN-false"
-      case "ltcyan": return "CYAN-true"
-      case "white": return "WHITE-false"
-      case "ltgray": return "WHITE-true"
-      case "ltred": return "RED-true"
-      case "yellow": return "YELLOW-true"
-      case "black_white": return "BLACK-false"
-      case "": return "DEFAULT-false"
-      default: console.error(`missing fg ${color}`); return "DEFAULT-false"
-    }
-  }
-
   function getSymbolFor(x, y) {
     const char = mapgen.object.rows[y][x];
     if (char in mapgen.object.furniture) {
@@ -240,16 +332,93 @@ function renderMapgen(cddaData, mapgen, tileset, {mouseX, mouseY}) {
 
         drawTile(ctx, tileImage, asciiOffset + symbol.codePointAt(0), x, y)
       }
-    ctx.strokeStyle = "red"
-    ctx.lineWidth = 3
-    ctx.strokeRect(tileWidth * mouseX, tileHeight * mouseY, tileWidth, tileHeight)
+    (mapgen.object.place_items || []).forEach(item => {
+    });
+    (mapgen.object.place_loot || []).forEach(loot => {
+      const {group, x, y, chance, repeat} = loot;
+      const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
+      const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
+      ctx.strokeStyle = "orange"
+      ctx.lineWidth = 1
+      ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
+    });
+    if (mouseX != null && mouseY != null) {
+      ctx.strokeStyle = "red"
+      ctx.lineWidth = 4
+      ctx.strokeRect(tileWidth * mouseX, tileHeight * mouseY, tileWidth, tileHeight)
+    }
   }
 
   return canvas(
+    '.mapgen',
     {attrs: {width: width * tileWidth, height: height * tileHeight}, hook: {insert: ({elm}) => draw(elm.getContext('2d')), update: ({elm}) => draw(elm.getContext('2d'))}}
   )
+}
 
-  return svg([
-    svg.image({attrs: {'xlink:href': `file://${tileImage}`}})
-  ])
+function renderTile(cddaData, tileset, {terrainId, furnitureId, background}) {
+  const {config, root} = tileset;
+  const {width: tileWidth, height: tileHeight} = config.tile_info[0]
+  const fallback = config['tiles-new'].find(x => 'ascii' in x)
+  const asciiMap = new Map()
+  fallback.ascii.forEach(({bold, color, offset}) => {
+    asciiMap.set(`${color}-${bold}`, offset);
+  })
+  const {ascii} = fallback
+  const tileImage = imageFromFile(path.join(root, fallback.file));
+  const tilesPerRow = tileImage.width / tileWidth
+
+  function getSymbolFor(terrainId, furnitureId) {
+    if (furnitureId != null) {
+      const furniture = cddaData.furniture[furnitureId];
+      return {symbol: furniture.symbol, color: furniture.color || ""};
+    }
+    const oneTerrainId = Array.isArray(terrainId) ? terrainId[0] : terrainId;
+    const {symbol, color, flags} = cddaData.terrain[oneTerrainId]
+    const isAutoWall = flags && flags.indexOf("AUTO_WALL_SYMBOL") >= 0;
+    const oneColor = Array.isArray(color) ? color[0] : color;
+    const sym = isAutoWall ? WALL_SYMS.get(0) : symbol;
+    return {symbol: sym, color: oneColor};
+  }
+
+  function drawTile(ctx, img, offset, x, y) {
+    const ix = offset % tilesPerRow, iy = Math.floor(offset / tilesPerRow);
+    ctx.drawImage(img, ix * tileWidth, iy * tileHeight, tileWidth, tileHeight, x * tileWidth, y * tileHeight, tileWidth, tileHeight)
+  }
+
+
+  function draw(ctx) {
+    ctx.fillStyle = background
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    const {symbol, color} = getSymbolFor(terrainId, furnitureId);
+    const asciiColor = mapColor(color)
+    const asciiOffset = asciiMap.get(asciiColor);
+
+    drawTile(ctx, tileImage, asciiOffset + symbol.codePointAt(0), 0, 0)
+  }
+
+  return canvas(
+    {attrs: {width: tileWidth, height: tileHeight}, hook: {insert: ({elm}) => draw(elm.getContext('2d')), update: ({elm}) => draw(elm.getContext('2d'))}}
+  )
+}
+
+function mapColor(color: string): string {
+  switch (color) {
+    case "dkgray": return "BLACK-true"
+    case "red": return "RED-false"
+    case "ltred_green": return "RED-true"
+    case "green": return "GREEN-false"
+    case "ltgreen": return "GREEN-true"
+    case "brown": return "YELLOW-false"
+    case "blue": return "BLUE-false"
+    case "magenta": return "MAGENTA-false"
+    case "cyan": return "CYAN-false"
+    case "ltcyan": return "CYAN-true"
+    case "white": return "WHITE-false"
+    case "ltgray": return "WHITE-true"
+    case "ltred": return "RED-true"
+    case "yellow": return "YELLOW-true"
+    case "black_white": return "BLACK-false"
+    case "": return "DEFAULT-false"
+    default: console.error(`missing fg ${color}`); return "DEFAULT-false"
+  }
 }

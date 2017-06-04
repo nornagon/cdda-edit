@@ -7,6 +7,7 @@ import { Component, Sources, RootSinks } from './interfaces';
 import { App } from './app';
 
 import * as electron from 'electron';
+import * as fs from 'fs';
 
 const main : Component = onionify(App);
 
@@ -18,10 +19,23 @@ function electronDriver(req$) {
     if (msg.dialog === "open") {
       return xs.create({
         start: listener => {
-          electron.remote.dialog.showOpenDialog(electron.remote.getCurrentWindow(), msg.options, e => listener.next(e));
+          electron.remote.dialog.showOpenDialog(electron.remote.getCurrentWindow(), msg.options, e => {
+            listener.next(e);
+            listener.complete();
+          });
         },
         stop: () => {}
       });
+    } else if (msg.type === "writeFile") {
+      return xs.create({
+        start: listener => {
+          fs.writeFile(msg.fileName, msg.data, (err) => listener.next(err))
+          listener.complete()
+        },
+        stop: () => {}
+      });
+    } else {
+      return xs.empty();
     }
   }
 }
