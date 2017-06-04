@@ -46,7 +46,10 @@ function intent(DOM) {
   ).map(v => state => ({...state, selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, computeVisibleItems(state).length - 1))}));
 
   const choose$ = searchBox.events('keydown').filter(e => e.key === 'Enter')
-  const cancel$ = searchBox.events('keydown').filter(e => e.key === 'Escape')
+  const cancel$ = xs.merge(
+    DOM.select('document').events('keydown').filter(e => e.key === 'Escape'),
+    DOM.select('.modal-background').events('click').filter(e => e.target === e.currentTarget)
+  )
 
   return {onion: xs.merge(default$, search$, upDown$), choose$, cancel$};
 }
@@ -54,38 +57,40 @@ function intent(DOM) {
 const computeVisibleItems = ({items, search}) => Object.values(items).filter(({id}) => id.startsWith(search || ''))
 
 function view(state$) {
-  return state$.map(state => {
+  return state$.filter(s => s.editingType != null).map(state => {
     const visibleItems = computeVisibleItems(state);
     const selectedItem = state.selectedIdx >= 0 ? visibleItems[state.selectedIdx] : undefined;
-    return <div style={{display: 'flex', position: 'fixed', top: '0px', left: '0px', background: 'black', border: '4px solid white', maxHeight: '100%'}}>
-      <div className='list' style={{display: 'flex', flexDirection: 'column'}}>
-        <div className='search'>
-          {input('.search', {
-            props: {value: state.search},
-            hook: {insert: ({elm}) => elm.focus()},
-            style: {font: 'inherit', background: 'black', color: 'white', outline: 'none', border: 'none'}
-          })}
+    return <div className='modal-background' style={{position: 'fixed', top: '0', bottom: '0', left: '0', right: '0', background: 'rgba(0, 0, 0, 0.5)'}}>
+      <div style={{display: 'flex', position: 'fixed', top: '0px', left: '0px', background: 'black', border: '4px solid white', maxHeight: '100%'}}>
+        <div className='list' style={{display: 'flex', flexDirection: 'column'}}>
+          <div className='search'>
+            {input('.search', {
+              props: {value: state.search},
+              hook: {insert: ({elm}) => elm.focus()},
+              style: {font: 'inherit', background: 'black', color: 'white', outline: 'none', border: 'none'}
+            })}
+          </div>
+          <ul className='results' style={{listStyle: 'none', margin: '0', padding: '0', overflow: 'scroll'}}>
+            {visibleItems.map(item => {
+              const selected = item === selectedItem;
+              return li(`.result${selected ? '.selected' : ''}`, {
+                key: item.id,
+                style: {background: selected ? 'white' : 'black', color: selected ? 'black' : 'white'},
+                hook: {insert: (e) => selected && scrollIntoView(e.elm) }
+              }, [item.id]);
+            })}
+          </ul>
         </div>
-        <ul className='results' style={{listStyle: 'none', margin: '0', padding: '0', overflow: 'scroll'}}>
-          {visibleItems.map(item => {
-            const selected = item === selectedItem;
-            return li(`.result${selected ? '.selected' : ''}`, {
-              key: item.id,
-              style: {background: selected ? 'white' : 'black', color: selected ? 'black' : 'white'},
-              hook: {insert: (e) => selected && scrollIntoView(e.elm) }
-            }, [item.id]);
-          })}
-        </ul>
-      </div>
-      <div className='info'>
-        {selectedItem
-          ? <div>
-            <h2>{selectedItem.name}</h2>
-          </div>
-          : <div>
-            <em>Nothing selected</em>
-          </div>
-        }
+        <div className='info'>
+          {selectedItem
+            ? <div>
+              <h2>{selectedItem.name}</h2>
+            </div>
+            : <div>
+              <em>Nothing selected</em>
+            </div>
+          }
+        </div>
       </div>
     </div>;
   });

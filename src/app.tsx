@@ -1,5 +1,6 @@
 import xs, { Stream } from 'xstream';
 import { VNode, DOMSource, svg, canvas, input } from '@cycle/dom';
+import * as dom from '@cycle/dom';
 import isolate from '@cycle/isolate';
 import { StateSource } from 'cycle-onionify';
 
@@ -75,7 +76,7 @@ export function App(sources : AppSources) : AppSinks
   });*/
 
   const selectorLens = {
-    get: state => ({cddaData: state.cddaData, ...state.editing, editingType: 'terrain', items: state.cddaData['terrain']}),
+    get: state => ({cddaData: state.cddaData, ...state.editing, editingType: state.editingType, items: state.cddaData[state.editingType]}),
     set: (state, childState) => {
       const {cddaData: _, ...rest} = childState;
       return {...state, editing: rest}
@@ -127,15 +128,24 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
   })
 
   const editSymbol$ = DOM.select('.editSymbol').events('click').map(e => state => {
-    return {...state, editingSymbol: state.selectedSymbolId, editing: {search: state.mapgen.object.terrain[state.selectedSymbolId], selectedIdx: 0}}
+    const editingType = e.target.editType;
+    return {...state, editingSymbol: state.selectedSymbolId, editingType, editing: {search: state.mapgen.object[editingType][state.selectedSymbolId], selectedIdx: 0}}
+  });
+
+  const removeSymbol$ = DOM.select('.removeSymbol').events('click').map(e => state => {
+    const removeType = e.target.removeType;
+    return {...state,
+      mapgen: {...state.mapgen, object: {...state.mapgen.object, [removeType]: {...state.mapgen.object[removeType], [state.selectedSymbolId]: undefined}}},
+    };
   });
 
   const updateSymbol$ = choose.map(chosenId => state => {
     if (chosenId == null) return {...state, editingSymbol: null, editing: null};
     return {...state,
       editingSymbol: null,
+      editingType: null,
       editing: null,
-      mapgen: {...state.mapgen, object: {...state.mapgen.object, terrain: {...state.mapgen.object.terrain, [state.editingSymbol]: chosenId}}},
+      mapgen: {...state.mapgen, object: {...state.mapgen.object, [state.editingType]: {...state.mapgen.object[state.editingType], [state.editingSymbol]: chosenId}}},
     };
   });
 
@@ -159,7 +169,7 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
     return {...state}
   })
 
-  return {onion: xs.merge(init$, selectRoot$, mouseTilePos$, selectTerrain$, drawTerrain$, keys$, editSymbol$, updateSymbol$), electron: xs.empty()};
+  return {onion: xs.merge(init$, selectRoot$, mouseTilePos$, selectTerrain$, drawTerrain$, keys$, editSymbol$, updateSymbol$, removeSymbol$), electron: xs.empty()};
 }
 
 function view(state$ : Stream<AppState>, modalVdom$) : Stream<VNode>
@@ -233,8 +243,17 @@ function renderMain(state) {
         </ul>
         <button className='addSymbol'>add symbol</button>
         <div className="brushProps">
-          <div>Terrain: <a className='editSymbol' href='#'>{selectedTerrain.terrain}</a></div>
-          <div>Furniture: {selectedTerrain.furniture}</div>
+          <div>Terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'terrain'}}, [selectedTerrain.terrain])}</div>
+          <div>Furniture: {
+            selectedTerrain.furniture
+            ? dom.span([
+                dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, [selectedTerrain.furniture]),
+                " ",
+                dom.a('.removeSymbol', {attrs: {href: '#'}, props: {removeType: 'furniture'}}, ['x'])
+              ])
+            : dom.span([
+                dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, ['+'])
+            ])}</div>
         </div>
       </div>
     </div>
@@ -290,7 +309,7 @@ function determineWallCorner(cddaData, obj, [tx, ty]) {
 function renderMapgen(cddaData, mapgen, tileset, {mouseX, mouseY}) {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
-  const fallback = config['tiles-new'].find(x => 'ascii' in x)
+  const fallback = config['tiles-new'].find(x => x.ascii != null)
   const asciiMap = new Map()
   fallback.ascii.forEach(({bold, color, offset}) => {
     asciiMap.set(`${color}-${bold}`, offset);
@@ -308,7 +327,7 @@ function renderMapgen(cddaData, mapgen, tileset, {mouseX, mouseY}) {
 
   function getSymbolFor(x, y) {
     const char = mapgen.object.rows[y][x];
-    if (char in mapgen.object.furniture) {
+    if (mapgen.object.furniture[char] != null) {
       const furniture = cddaData.furniture[mapgen.object.furniture[char]];
       return {symbol: furniture.symbol, color: furniture.color || ""};
     }
@@ -418,7 +437,7 @@ function mapColor(color: string): string {
     case "ltred": return "RED-true"
     case "yellow": return "YELLOW-true"
     case "black_white": return "BLACK-false"
-    case "": return "DEFAULT-false"
-    default: console.error(`missing fg ${color}`); return "DEFAULT-false"
+    case "": return "WHITE-false"
+    default: console.error(`missing fg ${color}`); return "WHITE-false"
   }
 }
