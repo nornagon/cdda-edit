@@ -76,7 +76,15 @@ export function App(sources : AppSources) : AppSinks
   });*/
 
   const selectorLens = {
-    get: state => ({cddaData: state.cddaData, ...state.editing, editingType: state.editingType, items: state.cddaData[state.editingType]}),
+    get: state => {
+      const items = state.editing ?
+        state.cddaData[state.editing.type === 'fill_ter' ? 'terrain' : state.editing.type] : {};
+      return {
+        ...state.editing,
+        cddaData: state.cddaData,
+        items
+      }
+    },
     set: (state, childState) => {
       const {cddaData: _, ...rest} = childState;
       return {...state, editing: rest}
@@ -128,8 +136,12 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
   })
 
   const editSymbol$ = DOM.select('.editSymbol').events('click').map(e => state => {
-    const editingType = e.target.editType;
-    return {...state, editingSymbol: state.selectedSymbolId, editingType, editing: {search: state.mapgen.object[editingType][state.selectedSymbolId], selectedIdx: 0}}
+    const editingType = e.target.editType === 'fill_ter' ? 'terrain' : e.target.editType;
+    return {...state, editing: {
+      type: e.target.editType,
+      search: state.mapgen.object[editingType][state.selectedSymbolId],
+      selectedIdx: 0
+    }}
   });
 
   const removeSymbol$ = DOM.select('.removeSymbol').events('click').map(e => state => {
@@ -140,12 +152,12 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
   });
 
   const updateSymbol$ = choose.map(chosenId => state => {
-    if (chosenId == null) return {...state, editingSymbol: null, editing: null};
+    if (chosenId == null) return {...state, editing: null};
+    if (state.editing.type === 'fill_ter')
+      return {...state, mapgen: {...state.mapgen, object: {...state.mapgen.object, fill_ter: chosenId}}, editing: null}
     return {...state,
-      editingSymbol: null,
-      editingType: null,
       editing: null,
-      mapgen: {...state.mapgen, object: {...state.mapgen.object, [state.editingType]: {...state.mapgen.object[state.editingType], [state.editingSymbol]: chosenId}}},
+      mapgen: {...state.mapgen, object: {...state.mapgen.object, [state.editing.type]: {...state.mapgen.object[state.editing.type], [state.selectedSymbolId]: chosenId}}},
     };
   });
 
@@ -180,7 +192,7 @@ function view(state$ : Stream<AppState>, modalVdom$) : Stream<VNode>
         {state.cddaRoot == null
           ? <button className='selectRoot'>Select CDDA root</button>
           : renderMain(state)}
-        {state.editingSymbol != null ? modalVdom : null}
+        {state.editing != null ? modalVdom : null}
       </div>
     });
 }
@@ -236,25 +248,28 @@ function renderMain(state) {
         <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
           Hovered: {hovered ? describeHovered(hovered) : 'none'}
         </div>
+        <div>Base terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'fill_ter'}}, [mapgen.object.fill_ter])}</div>
         <ul className="symbols" style={terrainListStyle}>
-          {[' '].concat(terrains).map(tId =>
-            <li>{renderTerrainButton(cddaData, tileset, tId, mapgen.object.terrain[tId] || mapgen.object.fill_ter, mapgen.object.furniture[tId], selectedSymbolId === tId)}</li>
+          <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter, undefined, selectedSymbolId === ' ')}</li>
+          {terrains.map(tId =>
+            <li>{renderTerrainButton(cddaData, tileset, tId, mapgen.object.terrain[tId], mapgen.object.furniture[tId], selectedSymbolId === tId)}</li>
           )}
         </ul>
         <button className='addSymbol'>add symbol</button>
-        <div className="brushProps">
-          <div>Terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'terrain'}}, [selectedTerrain.terrain])}</div>
-          <div>Furniture: {
-            selectedTerrain.furniture
-            ? dom.span([
-                dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, [selectedTerrain.furniture]),
-                " ",
-                dom.a('.removeSymbol', {attrs: {href: '#'}, props: {removeType: 'furniture'}}, ['x'])
-              ])
-            : dom.span([
-                dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, ['+'])
-            ])}</div>
-        </div>
+        {selectedSymbolId !== ' ' ?
+            <div className="brushProps">
+            <div>Terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'terrain'}}, [selectedTerrain.terrain])}</div>
+            <div>Furniture: {
+              selectedTerrain.furniture
+              ? dom.span([
+                  dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, [selectedTerrain.furniture]),
+                  " ",
+                  dom.a('.removeSymbol', {attrs: {href: '#'}, props: {removeType: 'furniture'}}, ['x'])
+                ])
+              : dom.span([
+                  dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, ['+'])
+              ])}</div>
+          </div> : null}
       </div>
     </div>
   </div>

@@ -54,10 +54,14 @@ function intent(DOM) {
   return {onion: xs.merge(default$, search$, upDown$), choose$, cancel$};
 }
 
-const computeVisibleItems = ({items, search}) => Object.values(items).filter(({id}) => id.startsWith(search || ''))
+const computeVisibleItems = ({items, search}) => {
+  const matching = Object.values(items).filter(({id}) => id.startsWith(search || ''));
+  matching.sort((a, b) => a.id.localeCompare(b.id));
+  return matching;
+}
 
 function view(state$) {
-  return state$.filter(s => s.editingType != null).map(state => {
+  return state$.filter(s => s.type != null).map(state => {
     const visibleItems = computeVisibleItems(state);
     const selectedItem = state.selectedIdx >= 0 ? visibleItems[state.selectedIdx] : undefined;
     return <div className='modal-background' style={{position: 'fixed', top: '0', bottom: '0', left: '0', right: '0', background: 'rgba(0, 0, 0, 0.5)'}}>
@@ -67,7 +71,7 @@ function view(state$) {
             {input('.search', {
               props: {value: state.search},
               hook: {insert: ({elm}) => elm.focus()},
-              style: {font: 'inherit', background: 'black', color: 'white', outline: 'none', border: 'none'}
+              style: {font: 'inherit', background: 'black', color: 'orange', outline: 'none', border: 'none'}
             })}
           </div>
           <ul className='results' style={{listStyle: 'none', margin: '0', padding: '0', overflow: 'scroll'}}>
@@ -81,19 +85,33 @@ function view(state$) {
             })}
           </ul>
         </div>
-        <div className='info'>
+        <div className='info' style={{overflowY: 'scroll'}}>
           {selectedItem
-            ? <div>
-              <h2>{selectedItem.name}</h2>
-            </div>
-            : <div>
-              <em>Nothing selected</em>
-            </div>
-          }
+            ? renderItem(selectedItem)
+            : <div><em>Nothing selected</em></div>}
         </div>
       </div>
     </div>;
   });
+}
+
+function renderItem(item) {
+  switch (item.type) {
+    case 'terrain':
+      return <div>
+        <div>{item.name}</div>
+        <br/><div>{item.flags != null ? item.flags.join(", ") : <em>No flags.</em>}</div>
+        <br/><div>Move cost: {item.move_cost}</div>
+      </div>;
+    case 'furniture':
+      return <div>
+        <div>{item.name}</div>
+        <br/><div>{item.flags != null ? item.flags.join(", ") : <em>No flags.</em>}</div>
+        {item.move_cost_mod != null ? <div><br/>Move cost modifier: {item.move_cost_mod}</div> : null}
+        {item.max_volume != null ? <div><br/>Maximum volume: {item.max_volume / 1000} L</div> : null}
+        {/*<pre style={{font: "16px Fixedsys"}}>{JSON.stringify(item, null, 2)}</pre>*/}
+      </div>;
+  }
 }
 
 function scrollIntoView(e) {

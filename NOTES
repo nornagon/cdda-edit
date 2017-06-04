@@ -1,0 +1,297 @@
+QUESTION: Can an item group spawn two items together (eg. plate + fork)?
+A: Yes. The "distribution" item group type is the default, which spawns _one
+of_ its entries, with relative weights. The "collection" item group type, on
+the other hand, gives each entry in its list a chance.
+
+To spawn a plate and a fork together:
+
+    {
+      "collection": [
+        { "item": "fork", prob: 100 },
+        { "item": "plate", prob: 100 }
+      ],
+    }
+
+To spawn either a spoon and bowl or fork and plate, with equal likelihood:
+
+    {
+      "distribution": [
+        {
+          "collection": [
+            { "item": "fork", prob: 100 },
+            { "item": "plate", prob: 100 }
+          ],
+          "prob": 1
+        },
+        {
+          "collection": [
+            { "item": "spoon", prob: 100 },
+            { "item": "bowl", prob: 100 }
+          ],
+          "prob": 1
+        }
+      ]
+    }
+
+
+
+
+QUESTION: What props can be set on place_loot/place_monster?
+
+place_loot:
+  - x, y
+  - repeat? (default 1)
+  - group|item
+  - chance? (default 100)
+  - ammo?
+  - magazine?
+
+place_monsters:
+  - x, y
+  - repeat? (default 1)
+  - monster // monster_group id
+  - chance? (default 1) // ??? why is this not a percentage?
+  - density? (default -1.0)
+
+place_monster:
+  - x, y
+  - repeat? (default 1)
+  - monster // monster id
+  - friendly? (default false)
+  - name? (default none)
+
+// TODO: complete docs for all these as needed
+
+
+
+
+QUESTION: What's the full list of keys that can be in a mapgen?
+
+$ find data/json -name *.json | xargs jq '.[] | select(.type == "mapgen") | .object | keys | .[]'| sort | uniq -c | sort -n
+
+  85 "set"          // for doing some more complicated randomization things
+  24 "add"          // deprecated. alias for item?
+  18 "rotation"     // rotates whole map. ??? how does this interact with the overmap?
+   7 "mapping"      // seems deprecated?
+   5 "//"
+   4 "palettes"     // new
+   1 "loot"         // bug? in standing_stones
+
+ 733 "rows"
+ 654 "fill_ter"
+
+So:
+Each symbol may be defined to correspond to (some combination of?):
+ 729 "terrain"
+ 690 "furniture"
+ 142 "toilets"
+  89 "items"               // places items from a group
+  15 "item"                // places a specific item
+  12 "vehicles"
+   6 "vendingmachines"
+   4 "signs"
+   4 "gaspumps"
+   3 "monster"             // places a specific monster
+   2 "monsters"            // places monsters from a group
+   2 "traps"
+   1 "npcs"
+   1 "fields"
+   0 "rubble"              // unused?
+
+And regions (place_*) can be:
+ 518 "place_monsters"       // places monsters from a group
+ 233 "place_items"
+ 142 "place_loot"
+ 131 "place_vehicles"
+  16 "place_npcs"
+  14 "place_vendingmachines"
+   8 "place_monster"        // places a specific monster
+   5 "place_terrain"
+   5 "place_signs"
+   1 "place_traps"
+   1 "place_toilets"
+   1 "place_rubble"
+   1 "place_liquids"
+   1 "place_gaspumps"
+   1 "place_furniture"
+   1 "place_fields"         // only used in example
+
+
+"set" fields:
+   9 "line"    }
+ 353 "point"   }  poss. vals: "terrain", "furniture", "trap", "radiation", "bash"
+   0 "square"  }      "bash" simulates something very strong bashing the map at that point.
+ 351 "id"                   // type of thing to place
+ 362 "x"
+ 362 "y"
+   9 "x2"                   // used for line, square
+   9 "y2"
+  37 "chance"
+ 313 "repeat"
+   0 "amount"               // used for "radiation" type. unused though?
+   0 "rotation"
+   0 "fuel"
+   0 "status"
+
+
+
+
+
+QUESTION: What's the difference between a liquid and a field?
+
+Fields are hard-coded in field.h, and include things like webs, smoke, and
+fire. Liquids are soft-coded in JSON, and are generally things that can be
+placed in containers, like water, gasoline and bleach.
+
+
+
+
+QUESTION: What flags exist on terrain definitions? Which are relevant?
+
+$ find data/json -name *.json | xargs jq '.[] | select(.type == "terrain") | .flags | .[]' | sort | uniq -c | sort -nr
+ 206 "TRANSPARENT"
+  85 "FLAMMABLE_ASH"
+  80 "SUPPORTS_ROOF"
+  72 "REDUCE_SCENT"
+  65 "CONNECT_TO_WALL"                      // not in well-known
+  63 "WALL"
+  59 "FLAT"
+  48 "PERMEABLE"
+  43 "FLAMMABLE"
+  33 "ROAD"                                 // not in WK
+  32 "INDOORS"
+  31 "AUTO_WALL_SYMBOL"                     // not in well-known
+  28 "TREE"
+  28 "MOUNTABLE"
+  25 "THIN_OBSTACLE"
+  25 "PLACE_ITEM"
+  24 "SHORT"                                // not in WK
+  21 "CONTAINER"
+  18 "DIGGABLE"
+  18 "COLLAPSES"
+  13 "HARVESTED"
+  12 "SHRUB"
+  12 "FUNGUS"
+  12 "DOOR"
+  10 "OPENCLOSE_INSIDE"
+   9 "SEALED"
+   8 "FLAMMABLE_HARD"
+   8 "BARRICADABLE_DOOR"                    // not in well-known
+   7 "BASHABLE"
+   7 "BARRICADABLE_WINDOW"                  // not in well-known
+   6 "SWIMMABLE"
+   6 "LIQUID"
+   6 "CHIP"
+   6 "ALARMED"
+   4 "RUG"
+   4 "GOES_UP"
+   4 "GOES_DOWN"
+   4 "FISHABLE"                             // not in WK
+   3 "DEEP_WATER"                           // not in WK
+   2 "YOUNG"
+   2 "UNSTABLE"                             // not in WK
+   2 "SHARP"
+   2 "SEEN_FROM_ABOVE"                      // not in WK
+   2 "SALT_WATER"                           // not in WK
+   2 "RAMP"
+   2 "NO_FLOOR"                             // not in WK
+   2 "CLIMBABLE"                            // not in well-known
+   2 "BARRICADABLE_WINDOW_CURTAINS"         // not in well-known
+   2 "BARRICADABLE_DOOR_REINFORCED"         // not in well-known
+   2 "BARRICADABLE_DOOR_DAMAGED"            // not in well-known
+   1 "TINY"                                 // not in WK
+   1 "RAMP_END"                             // not in WK
+   1 "NOCOLLIDE"                            // not in WK
+   1 "LIQUIDCONT"
+   1 "DESTROY_ITEM"
+   1 "CONSOLE"
+   1 "BARRICADABLE_DOOR_REINFORCED_DAMAGED" // not in well-known
+
+// furniture
+  97 "TRANSPARENT"
+  55 "MOUNTABLE"
+  53 "CONTAINER"
+  51 "PLACE_ITEM"
+  33 "FLAMMABLE_ASH"
+  32 "ORGANIC"
+  31 "NOITEM"
+  30 "SEALED"
+  29 "BLOCKSDOOR"
+  23 "SHORT"                               // not in WK
+  20 "TINY"                                // not in WK
+  15 "FLAMMABLE"
+  12 "FLAMMABLE_HARD"
+  12 "ALLOW_FIELD_EFFECT"                  // not in WK
+   7 "NOCOLLIDE"                           // not in WK
+   7 "MINEABLE"
+   7 "FIRE_CONTAINER"
+   6 "UNSTABLE"
+   6 "DONT_REMOVE_ROTTEN"
+   5 "ROUGH"
+   5 "INDOORS"
+   4 "SUPPRESS_SMOKE"
+   4 "PLANT"
+   4 "FUNGUS"
+   4 "BASHABLE"
+   3 "ALARMED"
+   2 "LIQUIDCONT"
+   2 "DOOR"
+   1 "SHARP"
+   1 "SEEN_FROM_ABOVE"
+   1 "LADDER"
+   1 "FLOWER"
+   1 "DECONSTRUCT"
+
+   
+
+/*
+ * List of known flags, used in both terrain.json and furniture.json.
+ * TRANSPARENT - Players and monsters can see through/past it. Also sets ter_t.transparent
+ * FLAT - Player can build and move furniture on
+ * CONTAINER - Items on this square are hidden until looted by the player
+ * PLACE_ITEM - Valid terrain for place_item() to put items on
+ * DOOR - Can be opened (used for NPC pathfinding)
+ * FLAMMABLE - Can be lit on fire
+ * FLAMMABLE_HARD - Harder to light on fire, but still possible
+ * DIGGABLE - Digging monsters, seeding monsters, digging with shovel, etc
+ * LIQUID - Blocks movement, but isn't a wall (lava, water, etc)
+ * SWIMMABLE - Player and monsters can swim through it
+ * SHARP - May do minor damage to players/monsters passing thruogh it
+ * ROUGH - May hurt the player's feet
+ * SEALED - Can't use 'e' to retrieve items, must smash open first
+ * NOITEM - Items 'fall off' this space
+ * MOUNTABLE - Player can fire mounted weapons from here (EG: M2 Browning)
+ * DESTROY_ITEM - Items that land here are destroyed
+ * GOES_DOWN - Can use '>' to go down a level
+ * GOES_UP - Can use '<' to go up a level
+ * CONSOLE - Used as a computer
+ * ALARMED - Sets off an alarm if smashed
+ * SUPPORTS_ROOF - Used as a boundary for roof construction
+ * MINEABLE - Able to broken with the jackhammer/pickaxe, but does not necessarily support a roof
+ * INDOORS - Has roof over it; blocks rain, sunlight, etc.
+ * COLLAPSES - Has a roof that can collapse
+ * FLAMMABLE_ASH - Burns to ash rather than rubble.
+ * REDUCE_SCENT - Reduces scent even more, only works if also bashable
+ * FIRE_CONTAINER - Stops fire from spreading (brazier, wood stove, etc)
+ * SUPPRESS_SMOKE - Prevents smoke from fires, used by ventilated wood stoves etc
+ * PLANT - A "furniture" that grows and fruits
+ * LIQUIDCONT - Furniture that contains liquid, allows for contents to be accessed in some checks even if SEALED
+ * OPENCLOSE_INSIDE - If it's a door (with an 'open' or 'close' field), it can only be opened or closed if you're inside.
+ * PERMEABLE - Allows gases to flow through unimpeded.
+ * RAMP - Higher z-levels can be accessed from this tile
+ *
+ * Currently only used for Fungal conversions
+ * WALL - This terrain is an upright obstacle
+ * THIN_OBSTACLE - This terrain is a thin obstacle, i.e. fence
+ * ORGANIC - This furniture is partly organic
+ * FLOWER - This furniture is a flower
+ * SHRUB - This terrain is a shrub
+ * TREE - This terrain is a tree
+ * HARVESTED - This terrain has been harvested so it won't bear any fruit
+ * YOUNG - This terrain is a young tree
+ * FUNGUS - Fungal covered
+ *
+ * Furniture only:
+ * BLOCKSDOOR - This will boost map terrain's resistance to bashing if str_*_blocked is set (see map_bash_info)
+ */
+
