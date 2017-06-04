@@ -10,12 +10,13 @@ import * as path from 'path';
 import * as electron from 'electron';
 import * as glob from 'glob';
 import * as stringify from 'json-beautify';
+import {filter} from 'fuzzaldrin';
 
 export function IdSelector(sources) {
   const {onion: action$, choose$, cancel$} = intent(sources.DOM);
   const vdom$ = view(sources.onion.state$);
 
-  const choose$ = xs.merge(cancel$.mapTo(null), choose$.map(_ => {
+  const chosenId$ = xs.merge(cancel$.mapTo(null), choose$.map(_ => {
     return sources.onion.state$
       .filter(state => state.selectedIdx != null)
       .take(1)
@@ -27,11 +28,11 @@ export function IdSelector(sources) {
   return {
     DOM: vdom$,
     onion: action$,
-    choose: choose$
+    choose: chosenId$
   };
 }
 
-function intent(DOM) {
+function intent(DOM: DOMSource) {
   const default$ = xs.of(prevState => {
     if (prevState == null) {
       return { search: '' }
@@ -45,9 +46,9 @@ function intent(DOM) {
     searchBox.events('keydown').filter(e => e.key === 'ArrowUp').map(e => e.preventDefault()).mapTo(-1)
   ).map(v => state => ({...state, selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, computeVisibleItems(state).length - 1))}));
 
-  const choose$ = searchBox.events('keydown').filter(e => e.key === 'Enter')
+  const choose$ = searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'Enter')
   const cancel$ = xs.merge(
-    DOM.select('document').events('keydown').filter(e => e.key === 'Escape'),
+    DOM.select('document').events('keydown').filter((e: KeyboardEvent) => e.key === 'Escape'),
     DOM.select('.modal-background').events('click').filter(e => e.target === e.currentTarget)
   )
 
@@ -55,12 +56,11 @@ function intent(DOM) {
 }
 
 const computeVisibleItems = ({items, search}) => {
-  const matching = Object.values(items).filter(({id}) => id.startsWith(search || ''));
-  matching.sort((a, b) => a.id.localeCompare(b.id));
+  const matching = filter(Object.values(items), search || '', {key: 'id'})
   return matching;
 }
 
-function view(state$) {
+function view(state$: Stream<any>) {
   return state$.filter(s => s.type != null).map(state => {
     const visibleItems = computeVisibleItems(state);
     const selectedItem = state.selectedIdx >= 0 ? visibleItems[state.selectedIdx] : undefined;

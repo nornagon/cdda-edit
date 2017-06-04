@@ -27,23 +27,22 @@ export type AppState = {
  *                         between
  * output: ----------c----d-------------h---i--------
  */
-function between(first, second) {
-  return (source) => first.mapTo(source.endWhen(second)).flatten()
+function between(first: Stream<any>, second: Stream<any>): <T>(source: Stream<T>) => Stream<T> {
+  return (source: Stream<any>) => first.mapTo(source.endWhen(second)).flatten()
 }
-
 
 
 function loadCDDAData(root: string): any {
   const filenames = glob.sync(root + '/data/json/**/*.json', {nodir: true});
-  const objects = Array.prototype.concat.apply([], filenames.map(fn => {
-    const json = JSON.parse(fs.readFileSync(fn))
+  const objects = Array.prototype.concat.apply([], filenames.map((fn: string) => {
+    const json = JSON.parse(fs.readFileSync(fn).toString())
     return (Array.isArray(json) ? json : [json]).map((x, i) => ({...x, _source: [fn, i]}));
   }));
   const tilesetConfigs = glob.sync(root + '/gfx/*/tile_config.json')
-  const tilesets = tilesetConfigs.map(fn => {
+  const tilesets = tilesetConfigs.map((fn: string) => {
     const tsRoot = path.dirname(fn)
     try {
-      const tileConfig = JSON.parse(fs.readFileSync(fn))
+      const tileConfig = JSON.parse(fs.readFileSync(fn).toString())
       return {root: tsRoot, config: tileConfig};
     } catch (e) {
       return {root: tsRoot, config: {}};
@@ -126,7 +125,7 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
 
   const mousePos$ = xs.merge(DOM.select('canvas.mapgen').events('mousemove'), DOM.select('canvas.mapgen').events('mouseout').map(e => null));
 
-  const mouseTilePos$ = mousePos$.map(e => state => {
+  const mouseTilePos$ = mousePos$.map((e: MouseEvent) => state => {
     const {config: {tile_info: [{width, height}]}} = state.tileset
     return {...state, mouseX: e ? (e.offsetX / width)|0 : null, mouseY: e ? (e.offsetY / height)|0 : null};
   })
@@ -139,7 +138,7 @@ function intent(DOM : DOMSource, electro, choose) : Stream<Reducer>
     const editingType = e.target.editType === 'fill_ter' ? 'terrain' : e.target.editType;
     return {...state, editing: {
       type: e.target.editType,
-      search: state.mapgen.object[editingType][state.selectedSymbolId],
+      search: e.target.editType === 'fill_ter' ? state.mapgen.object.fill_ter : state.mapgen.object[editingType][state.selectedSymbolId],
       selectedIdx: 0
     }}
   });
@@ -248,7 +247,6 @@ function renderMain(state) {
         <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
           Hovered: {hovered ? describeHovered(hovered) : 'none'}
         </div>
-        <div>Base terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'fill_ter'}}, [mapgen.object.fill_ter])}</div>
         <ul className="symbols" style={terrainListStyle}>
           <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter, undefined, selectedSymbolId === ' ')}</li>
           {terrains.map(tId =>
@@ -256,8 +254,8 @@ function renderMain(state) {
           )}
         </ul>
         <button className='addSymbol'>add symbol</button>
-        {selectedSymbolId !== ' ' ?
-            <div className="brushProps">
+        {selectedSymbolId !== ' '
+        ? <div className="brushProps">
             <div>Terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'terrain'}}, [selectedTerrain.terrain])}</div>
             <div>Furniture: {
               selectedTerrain.furniture
@@ -269,7 +267,10 @@ function renderMain(state) {
               : dom.span([
                   dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, ['+'])
               ])}</div>
-          </div> : null}
+          </div>
+          : <div>
+            Base terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'fill_ter'}}, [mapgen.object.fill_ter])}
+          </div>}
       </div>
     </div>
   </div>
