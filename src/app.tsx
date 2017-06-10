@@ -18,12 +18,26 @@ export type AppSources = Sources & { onion: StateSource<AppState> };
 export type AppSinks = Sinks & { onion: Stream<Reducer> };
 export type Reducer = (prev: AppState) => AppState;
 type TabName = "map" | "zone";
+interface Mapgen {
+  type: "mapgen";
+  object: MapgenObject;
+  method: "json" | "lua";
+  weight?: number;
+}
+interface MapgenObject {
+  fill_ter: string;
+  rows: Array<string>;
+  terrain: {[sym: string]: any};
+  furniture: {[sym: string]: any};
+  place_loot?: Array<PlaceLoot>;
+}
+type PlaceLoot = any;
 export type AppState = {
   cddaRoot?: string,
   cddaData?: any,
-  mapgen?: any,
-  tileset?: any,
-  selectedSymbolId?: string,
+  mapgen: Mapgen,
+  tileset: any,
+  selectedSymbolId: string,
   editing?: any,
   mouseX: number | null,
   mouseY: number | null,
@@ -57,11 +71,11 @@ function loadCDDAData(root: string): any {
     } catch (e) {
       return {root: tsRoot, config: {}};
     }
-  }).filter(({config}) => 'tiles-new' in config);
-  const terrain = {};
-  objects.filter(o => o.type === 'terrain').forEach(t => terrain[t.id] = t);
-  const furniture = {};
-  objects.filter(o => o.type === 'furniture').forEach(t => furniture[t.id] = t);
+  }).filter(({config}: any) => 'tiles-new' in config);
+  const terrain: {[id: string]: any} = {};
+  objects.filter((o: any) => o.type === 'terrain').forEach((t: any) => terrain[t.id] = t);
+  const furniture: {[id: string]: any} = {};
+  objects.filter((o: any) => o.type === 'furniture').forEach((t: any) => furniture[t.id] = t);
 
   return {objects, terrain, furniture, tilesets};
 }
@@ -148,16 +162,18 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
   })
 
   const editSymbol$: Stream<Reducer> = DOM.select('.editSymbol').events('click').map(e => (state: AppState): AppState => {
-    const editingType = e.target.editType === 'fill_ter' ? 'terrain' : e.target.editType;
+    const editType = e.target.editType as "fill_ter" | "terrain" | "furniture";
+    const editingType = editType === 'fill_ter' ? 'terrain' : editType;
+    const defn = state.mapgen.object[editingType];
     return {...state, editing: {
-      type: e.target.editType,
-      search: e.target.editType === 'fill_ter' ? state.mapgen.object.fill_ter : state.mapgen.object[editingType][state.selectedSymbolId],
+      type: editType,
+      search: editType === 'fill_ter' ? state.mapgen.object.fill_ter : defn[state.selectedSymbolId],
       selectedIdx: 0
     }}
   });
 
   const removeSymbol$: Stream<Reducer> = DOM.select('.removeSymbol').events('click').map(e => (state: AppState): AppState => {
-    const removeType = e.target.removeType;
+    const removeType: "terrain" | "furniture" = e.target.removeType;
     return {...state,
       mapgen: {...state.mapgen, object: {...state.mapgen.object, [removeType]: {...state.mapgen.object[removeType], [state.selectedSymbolId]: undefined}}},
     };
@@ -184,7 +200,7 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
   })
 
   const keys$: Stream<Reducer> = DOM.select('document').events('keydown').map((e: KeyboardEvent) => (state: AppState): AppState => {
-    if (e.key in state.mapgen.object.terrain || e.key == ' ')
+    if (e.key in (state.mapgen.object.terrain || {}) || e.key == ' ')
       return {...state, selectedSymbolId: e.key};
     return state;
   })
@@ -254,7 +270,7 @@ function renderMain(state: AppState) {
     {
       terrain: mapgen.object.terrain[mapgen.object.rows[mouseY][mouseX]] || mapgen.object.fill_ter,
       furniture: mapgen.object.furniture[mapgen.object.rows[mouseY][mouseX]],
-      loot: mapgen.object.place_loot.filter((loot: any) => within(mouseX, mouseY, loot.x, loot.y))[0],
+      loot: (mapgen.object.place_loot || []).filter((loot: PlaceLoot) => within(mouseX, mouseY, loot.x, loot.y))[0],
     } : null;
   const describeHovered = ({terrain, furniture, loot}: any) => {
     const ter = cddaData.terrain[terrain];
@@ -284,17 +300,18 @@ function renderMain(state: AppState) {
     </div>
   </div>
 }
+
 const TABS: Record<TabName, (state: AppState) => VNode> = {
   map: (state: AppState): VNode => {
     const {cddaData, mapgen, mouseX, mouseY, tileset, selectedSymbolId} = state;
     const terrains = Object.keys(mapgen.object.terrain);
-    const selectedTerrain = selectedSymbolId === ' ' ? { terrain: mapgen.object.fill_ter } : {
+    const selectedTerrain = selectedSymbolId === ' ' ? { terrain: mapgen.object.fill_ter, furniture: null } : {
       terrain: mapgen.object.terrain[selectedSymbolId],
       furniture: mapgen.object.furniture[selectedSymbolId],
     };
     return <div>
       <ul className="symbols" style={terrainListStyle}>
-        <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter, undefined, selectedSymbolId === ' ')}</li>
+        <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter, null, selectedSymbolId === ' ')}</li>
         {terrains.map(tId =>
           <li>{renderTerrainButton(cddaData, tileset, tId, mapgen.object.terrain[tId], mapgen.object.furniture[tId], selectedSymbolId === tId)}</li>
         )}
@@ -417,9 +434,9 @@ function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}
 
         drawTile(ctx, tileImage, asciiOffset + symbol.codePointAt(0), x, y)
       }
-    (mapgen.object.place_items || []).forEach(item => {
+    (mapgen.object.place_items || []).forEach((item: any) => {
     });
-    (mapgen.object.place_loot || []).forEach(loot => {
+    (mapgen.object.place_loot || []).forEach((loot: PlaceLoot) => {
       const {group, x, y, chance, repeat} = loot;
       const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
       const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
@@ -434,9 +451,17 @@ function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}
     }
   }
 
-  return canvas(
-    '.mapgen',
-    {attrs: {width: width * tileWidth, height: height * tileHeight}, hook: {insert: ({elm}) => draw(elm.getContext('2d')), update: ({elm}) => draw(elm.getContext('2d'))}}
+  return canvas('.mapgen',
+    {
+      attrs: {
+        width: width * tileWidth,
+        height: height * tileHeight
+      },
+      hook: {
+        insert: ({elm}: {elm: HTMLCanvasElement}) => draw(elm.getContext('2d') as CanvasRenderingContext2D),
+        update: ({elm}: {elm: HTMLCanvasElement}) => draw(elm.getContext('2d') as CanvasRenderingContext2D)
+      }
+    }
   )
 }
 
@@ -482,7 +507,13 @@ function renderTile(cddaData: any, tileset: any, {terrainId, furnitureId, backgr
   }
 
   return canvas(
-    {attrs: {width: tileWidth, height: tileHeight}, hook: {insert: ({elm}) => draw(elm.getContext('2d')), update: ({elm}) => draw(elm.getContext('2d'))}}
+    {
+      attrs: {width: tileWidth, height: tileHeight},
+      hook: {
+        insert: ({elm}: {elm: HTMLCanvasElement}) => draw(elm.getContext('2d') as CanvasRenderingContext2D),
+        update: ({elm}: {elm: HTMLCanvasElement}) => draw(elm.getContext('2d') as CanvasRenderingContext2D)
+      }
+    }
   )
 }
 

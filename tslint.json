@@ -3,24 +3,6 @@
         "member-access": true,
         "no-reference": true,
         "typedef": [true, "call-signature", "call-signature", "parameter", "property-declaration", "member-variable-declaration"],
-        "typedef-whitespace": [
-            true,
-            {
-                "call-signature": "onespace",
-                "index-signature": "onespace",
-                "parameter": "onespace",
-                "property-declaration": "onespace",
-                "variable-declaration": "onespace"
-            },
-            {
-                "call-signature": "onespace",
-                "index-signature": "onespace",
-                "parameter": "onespace",
-                "property-declaration": "onespace",
-                "variable-declaration": "onespace"
-            }
-        ],
-        "curly": true,
         "no-duplicate-variable": true,
         "no-empty": true,
         "no-eval": true,
@@ -29,7 +11,7 @@
         "no-use-before-declare": true,
         "no-var-keyword": true,
         "switch-default": true,
-        "triple-equals": true,
+        "triple-equals": [true, "allow-null-check"],
         "use-isnan": true,
         "prefer-const": true,
         "class-name": true,
