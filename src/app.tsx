@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as electron from 'electron';
 import * as glob from 'glob';
 import * as stringify from 'json-beautify';
+import * as bresenham from 'bresenham';
 
 export type AppSources = Sources & { onion: StateSource<AppState> };
 export type AppSinks = Sinks & { onion: Stream<Reducer> };
@@ -42,7 +43,29 @@ export type AppState = {
   mouseX: number | null,
   mouseY: number | null,
   paletteTab: TabName,
+  zoneOptions: LootZoneOptions | MonstersZoneOptions;
 };
+interface LootZoneOptions {
+  type: "loot";
+  groupId: string;
+  chance: number;
+  repeat: number;
+};
+interface MonstersZoneOptions {
+  type: "monsters";
+  groupId: string;
+  chance: number;
+  repeat: number;
+};
+
+interface CddaData {
+  objects: Array<any>;
+  terrain: {[id: string]: any};
+  furniture: {[id: string]: any};
+  tilesets: any;
+  item_group: {[id: string]: any};
+  monstergroup: {[id: string]: any};
+}
 
 /**
  * source: --a--b----c----d---e-f--g----h---i--j-----
@@ -56,7 +79,7 @@ function between(first: Stream<any>, second: Stream<any>): <T>(source: Stream<T>
 }
 
 
-function loadCDDAData(root: string): any {
+function loadCDDAData(root: string): CddaData {
   const filenames = glob.sync(root + '/data/json/**/*.json', {nodir: true});
   const objects = Array.prototype.concat.apply([], filenames.map((fn: string) => {
     const json = JSON.parse(fs.readFileSync(fn).toString())
@@ -76,8 +99,12 @@ function loadCDDAData(root: string): any {
   objects.filter((o: any) => o.type === 'terrain').forEach((t: any) => terrain[t.id] = t);
   const furniture: {[id: string]: any} = {};
   objects.filter((o: any) => o.type === 'furniture').forEach((t: any) => furniture[t.id] = t);
+  const item_group: {[id: string]: any} = {};
+  objects.filter((o: any) => o.type === 'item_group').forEach((t: any) => item_group[t.id] = t);
+  const monstergroup: {[id: string]: any} = {};
+  objects.filter((o: any) => o.type === 'monstergroup').forEach((t: any) => monstergroup[t.name] = t);
 
-  return {objects, terrain, furniture, tilesets};
+  return {objects, terrain, furniture, tilesets, item_group, monstergroup};
 }
 
 export function App(sources : AppSources) : AppSinks
@@ -127,8 +154,7 @@ export function App(sources : AppSources) : AppSinks
   };
 }
 
-function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reducer>
-{
+function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reducer> {
   const init$: Stream<Reducer> = xs.of((): AppState => {
     const cddaRoot = "/Users/nornagon/Source/Cataclysm-DDA";
     const cddaData = loadCDDAData(cddaRoot);
@@ -143,6 +169,12 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
       mouseX: null,
       mouseY: null,
       paletteTab: "map",
+      zoneOptions: {
+        type: "loot",
+        groupId: "everyday_gear",
+        chance: 100,
+        repeat: 1,
+      }
     }
   });
 
@@ -154,7 +186,9 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
 
   const mouseTilePos$: Stream<Reducer> = mousePos$.map((e: MouseEvent) => (state: AppState): AppState => {
     const {config: {tile_info: [{width, height}]}} = state.tileset
-    return {...state, mouseX: e ? (e.offsetX / width)|0 : null, mouseY: e ? (e.offsetY / height)|0 : null};
+    const mouseX = e ? (e.offsetX / width)|0 : null;
+    const mouseY = e ? (e.offsetY / height)|0 : null;
+    return {...state, mouseX, mouseY};
   })
 
   const selectTerrain$: Stream<Reducer> = DOM.select('.terrain').events('change').map(e => (state: AppState): AppState => {
@@ -181,18 +215,73 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
 
   const updateSymbol$: Stream<Reducer> = choose.map(chosenId => (state: AppState): AppState => {
     if (chosenId == null) return {...state, editing: null};
-    if (state.editing.type === 'fill_ter')
-      return {...state, mapgen: {...state.mapgen, object: {...state.mapgen.object, fill_ter: chosenId}}, editing: null}
-    return {...state,
-      editing: null,
-      mapgen: {...state.mapgen, object: {...state.mapgen.object, [state.editing.type]: {...state.mapgen.object[state.editing.type], [state.selectedSymbolId]: chosenId}}},
-    };
+    switch (state.editing.type) {
+      case 'fill_ter':
+        return {...state, mapgen: {...state.mapgen, object: {...state.mapgen.object, fill_ter: chosenId}}, editing: null}
+
+      case 'terrain': // fallthrough
+      case 'furniture':
+        return {...state,
+          editing: null,
+          mapgen: {...state.mapgen,
+            object: {...state.mapgen.object,
+              [state.editing.type]: {...state.mapgen.object[state.editing.type],
+                [state.selectedSymbolId]: chosenId}}},
+        };
+      case "item_group":
+      case "monstergroup":
+        return {...state,
+          editing: null,
+          zoneOptions: {...state.zoneOptions,
+            groupId: chosenId
+          }
+        };
+    }
   });
 
-  const drawTerrain$: Stream<Reducer> = DOM.select('canvas.mapgen').events('mousedown').map((e: MouseEvent) => (state: AppState): AppState => {
+  const changeZoneType$: Stream<Reducer> = DOM.select('.zoneType').events('change').map(e => (state: AppState): AppState => {
+    const select = e.target as HTMLSelectElement;
+    const newZoneOptions = {
+      loot: { type: 'loot', groupId: 'everyday_gear', chance: 100, repeat: 1 } as LootZoneOptions,
+      monsters: { type: 'monsters', groupId: 'GROUP_ZOMBIE', chance: 1, repeat: 1 } as MonstersZoneOptions
+    }[select.value as "loot" | "monsters"];
+    return {...state, zoneOptions: newZoneOptions}
+  })
+
+  const editZoneGroup$: Stream<Reducer> = DOM.select('.zoneGroup').events('click').map(e => (state: AppState): AppState => {
+    return {...state, editing: {
+      type: {
+        "loot": "item_group",
+        "monsters": "monstergroup"
+      }[state.zoneOptions.type],
+      search: state.zoneOptions.groupId,
+      selectedIdx: 0
+    }};
+  });
+
+  const map = DOM.select('canvas.mapgen')
+  const drags = map.events('mousedown').map(d =>
+    map.events('mousemove')
+      .startWith(d)
+      .map(m => ({
+        down: {x: d.offsetX, y: d.offsetY},
+        current: {x: m.offsetX, y: m.offsetY}
+      }))
+      .endWhen(map.events('mouseup'))
+  );
+  const intermediateRects = drags.flatten()
+  const rects = drags.map(s => s.last()).flatten()
+
+  const positions = intermediateRects.map(e => e.current)
+  const lines = xs.combine(positions, positions.drop(1));
+
+  const drawTerrain$: Stream<Reducer> = lines.map(([cur, prev]: [{x: number, y: number}, {x: number, y: number}]) => (state: AppState): AppState => {
+    // TODO: something something bresenham
     const rows = [...state.mapgen.object.rows];
     const {config: {tile_info: [{width, height}]}} = state.tileset
-    const tx = (e.offsetX/width)|0, ty = (e.offsetY/height)|0;
+    const tx = (cur.x/width)|0, ty = (cur.y/height)|0;
+    if (rows[ty][tx] === state.selectedSymbolId)
+      return state;
     let row = rows[ty];
     row = row.substring(0, tx) + state.selectedSymbolId + row.substring(tx+1)
     rows[ty] = row
@@ -225,6 +314,8 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
     updateSymbol$,
     removeSymbol$,
     changeTab$,
+    editZoneGroup$,
+    changeZoneType$,
   );
 }
 
@@ -254,7 +345,7 @@ const terrainListStyle = {
 function renderTerrainButton(cddaData: any, tileset: any, symbolId: string, terrainId: string, furnitureId: string | null, selected: boolean) {
   return <label>
     {input('.terrain', {attrs: {type: 'radio'}, props: {checked: selected, symbolId}, style: {display: 'none'}})}
-    {renderTile(cddaData, tileset, {terrainId, furnitureId, background: selected ? 'red' : 'black'})}
+    {dom.thunk('canvas', symbolId, renderTile, [cddaData, tileset, terrainId, furnitureId, selected ? 'red' : 'black'])}
   </label>;
 }
 
@@ -280,7 +371,7 @@ function renderMain(state: AppState) {
   };
   return <div>
     <div style={{display: 'flex', flexDirection: 'row'}}>
-      <div>{renderMapgen(cddaData, mapgen, tileset, {mouseX, mouseY})}</div>
+      {dom.thunk('canvas.mapgen', renderMapgen, [cddaData, mapgen, tileset, mouseX, mouseY])}
       <div style={{marginLeft: `${tileset.config.tile_info[0].width}px`}}>
         <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
           Hovered: {hovered ? describeHovered(hovered) : 'none'}
@@ -336,9 +427,25 @@ const TABS: Record<TabName, (state: AppState) => VNode> = {
         </div>}
     </div>;
   },
-  "zone": (state: AppState): VNode => {
+
+  zone: (state: AppState): VNode => {
     return <div>
-    region stuff
+      <div>
+        Place:
+        <select className="zoneType" value={state.zoneOptions.type}>
+          <option>loot</option>
+          <option>monsters</option>
+        </select>
+      </div>
+      <div>
+        Group: {dom.a('.zoneGroup', {attrs: {href: '#'}}, [state.zoneOptions.groupId])}
+      </div>
+      <div>
+        Repeat: {dom.input('.zoneRepeat', {props: {value: state.zoneOptions.repeat}})}
+      </div>
+      <div>
+        Chance: {dom.input('.zoneChance', {props: {value: state.zoneOptions.chance}})}
+      </div>
     </div>;
   },
 }
@@ -389,7 +496,7 @@ function determineWallCorner(cddaData: any, obj: any, [tx, ty]: [number, number]
   return WALL_SYMS.get(dirId).charAt(0)
 }
 
-function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}: {mouseX: number | null, mouseY: number | null}) {
+function renderMapgen(cddaData: any, mapgen: any, tileset: any, mouseX: number | null, mouseY: number | null) {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
   const fallback = config['tiles-new'].find((x: any) => x.ascii != null)
@@ -409,17 +516,17 @@ function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}
   }
 
   function getSymbolFor(x: number, y: number) {
-    const char = mapgen.object.rows[y][x];
+    var char = mapgen.object.rows[y][x];
     if (mapgen.object.furniture[char] != null) {
-      const furniture = cddaData.furniture[mapgen.object.furniture[char]];
+      var furniture = cddaData.furniture[mapgen.object.furniture[char]];
       return {symbol: furniture.symbol, color: furniture.color || ""};
     }
-    const terrain = mapgen.object.terrain[char] || mapgen.object.fill_ter;
-    const oneTerrain = Array.isArray(terrain) ? terrain[0] : terrain;
-    const {symbol, color, flags} = cddaData.terrain[oneTerrain]
-    const isAutoWall = flags && flags.indexOf("AUTO_WALL_SYMBOL") >= 0;
-    const oneColor = Array.isArray(color) ? color[0] : color;
-    const sym = isAutoWall ? determineWallCorner(cddaData, mapgen.object, [x, y]) : symbol;
+    var terrain = mapgen.object.terrain[char] || mapgen.object.fill_ter;
+    var oneTerrain = Array.isArray(terrain) ? terrain[0] : terrain;
+    var {symbol, color, flags} = cddaData.terrain[oneTerrain]
+    var isAutoWall = flags && flags.indexOf("AUTO_WALL_SYMBOL") >= 0;
+    var oneColor = Array.isArray(color) ? color[0] : color;
+    var sym = isAutoWall ? determineWallCorner(cddaData, mapgen.object, [x, y]) : symbol;
     return {symbol: sym, color: oneColor};
   }
 
@@ -453,6 +560,9 @@ function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}
 
   return canvas('.mapgen',
     {
+      style: {
+        cursor: 'default'
+      },
       attrs: {
         width: width * tileWidth,
         height: height * tileHeight
@@ -465,7 +575,7 @@ function renderMapgen(cddaData: any, mapgen: any, tileset: any, {mouseX, mouseY}
   )
 }
 
-function renderTile(cddaData: any, tileset: any, {terrainId, furnitureId, background}: any) {
+function renderTile(cddaData: any, tileset: any, terrainId: string, furnitureId: string, background: string) {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
   const fallback = config['tiles-new'].find((x: any) => 'ascii' in x)

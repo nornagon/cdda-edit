@@ -4,6 +4,7 @@
   "private": true,
   "devDependencies": {
     "@cycle/isolate": "^2.1.0",
+    "bresenham": "0.0.4",
     "cycle-scripts-one-fits-all": "3.1.2",
     "cyclejs-test-helpers": "^1.3.0",
     "electron": "~1.6.2",
