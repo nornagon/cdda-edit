@@ -12,6 +12,7 @@ body {
   font-family: fixedsys;
   font-size: 16px;
   -webkit-font-smoothing: none;
+  cursor: default;
 }
 @font-face {
   font-family: fixedsys;
@@ -19,6 +20,36 @@ body {
 }
 * {
   box-sizing: border-box;
+  user-select: none;
+}
+button {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  background: none;
+  color: white;
+  cursor: pointer;
+  outline: none;
+}
+button:before {
+  content: '[';
+  display: inline;
+}
+button:after {
+  content: ']';
+  display: inline;
+}
+button:hover {
+  background: white;
+  color: black;
+}
+::-webkit-scrollbar {
+  background: black;
+  width: 1ex;
+}
+::-webkit-scrollbar-thumb {
+  background: white;
+  border: 1px solid black;
 }
 </style>
 </head>

@@ -409,7 +409,7 @@ const terrainListStyle = {
 };
 
 function renderTerrainButton(cddaData: any, tileset: any, symbolId: string, terrainId: string, furnitureId: string | null, selected: boolean) {
-  return <label>
+  return <label style={{cursor: 'pointer'}}>
     {input('.terrain', {attrs: {type: 'radio'}, props: {checked: selected, symbolId}, style: {display: 'none'}})}
     {dom.thunk('canvas', symbolId, renderTile, [cddaData, tileset, terrainId, furnitureId, selected ? 'red' : 'black'])}
   </label>;
