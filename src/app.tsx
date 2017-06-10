@@ -31,8 +31,11 @@ interface MapgenObject {
   terrain: {[sym: string]: any};
   furniture: {[sym: string]: any};
   place_loot?: Array<PlaceLoot>;
+  place_monsters?: Array<PlaceMonsters>;
 }
 type PlaceLoot = any;
+type PlaceMonsters = any;
+type ZoneOptions = LootZoneOptions | MonstersZoneOptions;
 export type AppState = {
   cddaRoot?: string,
   cddaData?: any,
@@ -43,7 +46,7 @@ export type AppState = {
   mouseX: number | null,
   mouseY: number | null,
   paletteTab: TabName,
-  zoneOptions: LootZoneOptions | MonstersZoneOptions;
+  zoneOptions: ZoneOptions;
 };
 interface LootZoneOptions {
   type: "loot";
@@ -206,8 +209,8 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
     }}
   });
 
-  const removeSymbol$: Stream<Reducer> = DOM.select('.removeSymbol').events('click').map(e => (state: AppState): AppState => {
-    const removeType: "terrain" | "furniture" = e.target.removeType;
+  const removeSymbolProperty$: Stream<Reducer> = DOM.select('.removeSymbolProperty').events('click').map(e => (state: AppState): AppState => {
+    const removeType: 'furniture' = e.target.removeType;
     return {...state,
       mapgen: {...state.mapgen, object: {...state.mapgen.object, [removeType]: {...state.mapgen.object[removeType], [state.selectedSymbolId]: undefined}}},
     };
@@ -273,12 +276,41 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
   const rects = drags.map(s => s.last()).flatten()
 
   const positions = intermediateRects.map(e => e.current)
-  const lines = xs.combine(positions, positions.drop(1));
+  const lines = xs.combine(positions, (positions.drop(1) as Stream<{x: number, y: number} | null>).startWith(null));
+
+  const makeZone = (zo: ZoneOptions, xRange: [number, number], yRange: [number, number]): any => {
+    switch (zo.type) {
+      case 'loot':
+        return {group: zo.groupId, chance: zo.chance, repeat: zo.repeat, x: xRange, y: yRange};
+      case 'monsters':
+        return {monster: zo.groupId, chance: zo.chance, repeat: zo.repeat, x: xRange, y: yRange};
+    }
+  }
+
+  const drawZone$: Stream<Reducer> = rects.map(({down, current}) => (state: AppState): AppState => {
+    if (state.paletteTab !== 'zone')
+      return state;
+    const {config: {tile_info: [{width, height}]}} = state.tileset;
+    const downX = (down.x / width)|0;
+    const downY = (down.y / height)|0;
+    const curX = (current.x / width)|0;
+    const curY = (current.y / height)|0;
+    const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
+    return {...state,
+      mapgen: {...state.mapgen,
+        object: {...state.mapgen.object,
+          [zoneType]: [...(state.mapgen.object[zoneType] || []), makeZone(state.zoneOptions, [downX, curX], [downY, curY])]
+        }
+      }
+    };
+  })
 
   const drawTerrain$: Stream<Reducer> = lines.map(([cur, prev]: [{x: number, y: number}, {x: number, y: number}]) => (state: AppState): AppState => {
+    if (state.paletteTab !== 'map')
+      return state;
+    const {config: {tile_info: [{width, height}]}} = state.tileset
     // TODO: something something bresenham
     const rows = [...state.mapgen.object.rows];
-    const {config: {tile_info: [{width, height}]}} = state.tileset
     const tx = (cur.x/width)|0, ty = (cur.y/height)|0;
     if (rows[ty][tx] === state.selectedSymbolId)
       return state;
@@ -294,8 +326,39 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
     return state;
   })
 
+  const SYMBOLS = new Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
   const addSymbol$: Stream<Reducer> = DOM.select('.addSymbol').events('click').map(e => (state: AppState): AppState => {
-    return {...state}
+    const existingSymbols = new Set(Object.keys(state.mapgen.object.terrain));
+    const symbolToUse = [...SYMBOLS].find(x => !existingSymbols.has(x))
+    if (symbolToUse == null) {
+      alert("Oops! too many symbols")
+      return state;
+    }
+    return {...state,
+      mapgen: {...state.mapgen,
+        object: {...state.mapgen.object,
+          terrain: {...state.mapgen.object.terrain,
+            [symbolToUse]: "t_rock_floor"
+          }
+        }
+      },
+      selectedSymbolId: symbolToUse
+    };
+  })
+  const removeSymbol$: Stream<Reducer> = DOM.select('.removeSymbol').events('click').map(e => (state: AppState): AppState => {
+    const {selectedSymbolId} = state;
+    const {[selectedSymbolId]: _, ...newTerrain} = state.mapgen.object.terrain;
+    const {[selectedSymbolId]: __, ...newFurniture} = state.mapgen.object.furniture;
+    return {...state,
+      selectedSymbolId: ' ',
+      mapgen: {...state.mapgen,
+        object: {...state.mapgen.object,
+          terrain: newTerrain,
+          furniture: newFurniture,
+          rows: state.mapgen.object.rows.map(row => row.replace(selectedSymbolId, ' '))
+        }
+      }
+    }
   })
 
   const changeTab$: Stream<Reducer> = DOM.select('.tab').events('click').map((e: MouseEvent) => (state: AppState): AppState => {
@@ -309,13 +372,16 @@ function intent(DOM : DOMSource, electro, choose: Stream<string>) : Stream<Reduc
     mouseTilePos$,
     selectTerrain$,
     drawTerrain$,
+    drawZone$,
     keys$,
     editSymbol$,
     updateSymbol$,
-    removeSymbol$,
+    removeSymbolProperty$,
     changeTab$,
     editZoneGroup$,
     changeZoneType$,
+    addSymbol$,
+    removeSymbol$,
   );
 }
 
@@ -366,7 +432,7 @@ function renderMain(state: AppState) {
   const describeHovered = ({terrain, furniture, loot}: any) => {
     const ter = cddaData.terrain[terrain];
     const fur = cddaData.furniture[furniture];
-    const loo = loot ? ` (${loot.chance}% ${loot.group}${loot.repeat ? ' ' + loot.repeat.join('-') : ''})` : '';
+    const loo = loot ? ` (${loot.chance}% ${loot.group}${loot.repeat ? ' ' + (Array.isArray(loot.repeat) ? loot.repeat.join('-') : loot.repeat) : ''})` : '';
     return `${ter.name}${fur ? ` / ${fur.name}` : ''}${loo}`;
   };
   return <div>
@@ -416,11 +482,16 @@ const TABS: Record<TabName, (state: AppState) => VNode> = {
             ? dom.span([
                 dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, [selectedTerrain.furniture]),
                 " ",
-                dom.a('.removeSymbol', {attrs: {href: '#'}, props: {removeType: 'furniture'}}, ['x'])
+                dom.a('.removeSymbolProperty', {attrs: {href: '#'}, props: {removeType: 'furniture'}}, ['x'])
               ])
             : dom.span([
                 dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'furniture'}}, ['+'])
-            ])}</div>
+            ])}
+          </div>
+          <div>
+            <br/><br/><br/>
+            {dom.button('.removeSymbol', ['delete symbol'])}
+          </div>
         </div>
         : <div>
           Base terrain: {dom.a('.editSymbol', {attrs: {href: '#'}, props: {editType: 'fill_ter'}}, [mapgen.object.fill_ter])}
@@ -485,7 +556,7 @@ WALL_SYMS.set((8|4|2|1), "\u00ce")
 
 function determineWallCorner(cddaData: any, obj: any, [tx, ty]: [number, number]) {
   const terrainIdAt = (x: number, y: number): string => (y in obj.rows && x >= 0 && x < obj.rows[y].length && obj.rows[y][x] in obj.terrain) ? obj.terrain[obj.rows[y][x]] : obj.fill_ter;
-  const connectGroup = (ter: any): string => ter.connects_to || (ter.flags.indexOf("WALL") >= 0 || ter.flags.indexOf("CONNECT_TO_WALL") >= 0 ? "WALL" : null);
+  const connectGroup = (ter: any): string => ter.connects_to || ((ter.flags || []).indexOf("WALL") >= 0 || (ter.flags || []).indexOf("CONNECT_TO_WALL") >= 0 ? "WALL" : null);
   const terId = terrainIdAt(tx, ty);
   const ter = cddaData.terrain[terId];
   const connectedLeft = connectGroup(cddaData.terrain[terrainIdAt(tx - 1, ty)]) === connectGroup(ter) ? 1 : 0;
@@ -644,6 +715,7 @@ function mapColor(color: string): string {
     case "ltred": return "RED-true"
     case "yellow": return "YELLOW-true"
     case "black_white": return "BLACK-false"
+    case "black": return "BLACK-false"
     case "": return "WHITE-false"
     default: console.error(`missing fg ${color}`); return "WHITE-false"
   }
