@@ -46,13 +46,19 @@ function intent(DOM: DOMSource) {
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'ArrowUp').map(e => e.preventDefault()).mapTo(-1)
   ).map(v => (state: any): any => ({...state, selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, computeVisibleItems(state).length - 1))}));
 
-  const choose$ = searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'Enter')
+  const choose$ = xs.merge(
+    searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'Enter'),
+    DOM.select('.result').events('click')
+  )
   const cancel$ = xs.merge(
     DOM.select('document').events('keydown').filter((e: KeyboardEvent) => e.key === 'Escape'),
     DOM.select('.modal-background').events('click').filter(e => e.target === e.currentTarget)
   )
+  const hover$ = DOM.select('.result').events('mouseover').map(e => state => {
+    return {...state, selectedIdx: Number(e.target.idx)};
+  });
 
-  return {onion: xs.merge(default$, search$, upDown$), choose$, cancel$};
+  return {onion: xs.merge(default$, search$, upDown$, hover$), choose$, cancel$};
 }
 
 const computeVisibleItems = ({type, items, search}: {type: 'monstergroup' | 'item_group' | 'terrain' | 'furniture', items: {[id: string]: any}, search: string}) => {
@@ -77,10 +83,12 @@ function view(state$: Stream<any>) {
             })}
           </div>
           <ul className='results' style={{listStyle: 'none', margin: '0', padding: '0', overflowY: 'auto'}}>
-            {visibleItems.map((item: any) => {
+            {visibleItems.map((item: any, idx: number) => {
               const selected = item === selectedItem;
-              return li(`.result${selected ? '.selected' : ''}`, {
+              return li('.result', {
                 key: item[key],
+                class: {selected},
+                props: {idx: idx.toString()},
                 style: {background: selected ? 'white' : 'black', color: selected ? 'black' : 'white'},
                 hook: {insert: ({elm}: {elm: HTMLElement}) => selected && scrollIntoView(elm) }
               }, [item[key]]);
