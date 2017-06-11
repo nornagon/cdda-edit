@@ -90,14 +90,14 @@ function view(state$: Stream<any>) {
                 class: {selected},
                 props: {idx: idx.toString()},
                 style: {background: selected ? 'white' : 'black', color: selected ? 'black' : 'white'},
-                hook: {insert: ({elm}: {elm: HTMLElement}) => selected && scrollIntoView(elm) }
+                hook: {insert: ({elm}: {elm: HTMLElement}) => selected && scrollIntoView(elm), update: ({elm}: {elm: HTMLElement}) => selected && scrollIntoView(elm)}
               }, [item[key]]);
             })}
           </ul>
         </div>
         <div className='info' style={{overflowY: 'auto'}}>
           {selectedItem
-            ? renderItem(selectedItem)
+            ? renderItem(state.cddaData, selectedItem)
             : <div><em>Nothing selected</em></div>}
         </div>
       </div>
@@ -105,7 +105,44 @@ function view(state$: Stream<any>) {
   });
 }
 
-function renderItem(item: any) {
+type ItemMod = {
+  charges?: [number, number] | number,
+  "charges-min"?: number,
+  "charges-max"?: number,
+  damage?: [number, number] | number,
+  "damage-min"?: number,
+  "damage-max"?: number,
+  count?: [number, number] | number,
+  "count-min"?: number,
+  "count-max"?: number,
+  "container-item"?: string,
+}
+
+type ItemEntry = (
+  {
+    item: string,
+    prob?: number,
+  }
+  | {
+    group: string,
+    prob?: number,
+  }
+  | {
+    distribution: Array<ItemEntry>,
+  }
+  | {
+    collection: Array<ItemEntry>
+  }
+) & ItemMod;
+
+function isItem(t: ItemEntry): t is {item: string, prob?: number} & ItemMod {
+  return 'item' in t;
+}
+function isGroup(t: ItemEntry): t is {group: string, prob?: number} & ItemMod {
+  return 'group' in t;
+}
+
+function renderItem(cddaData: any, item: any) {
   switch (item.type) {
     case 'terrain':
       return <div>
@@ -120,11 +157,118 @@ function renderItem(item: any) {
         {item.move_cost_mod != null ? <div><br/>Move cost modifier: {item.move_cost_mod}</div> : null}
         {item.max_volume != null ? <div><br/>Maximum volume: {item.max_volume / 1000} L</div> : null}
       </div>;
+    case 'item_group': {
+      const readEntry = (e: ItemEntry | [string, number], defaultType: 'item' | 'group'): ItemEntry => {
+        if (Array.isArray(e)) {
+          const [itemId, prob] = e;
+          if (defaultType === 'item')
+            return {item: itemId, prob};
+          else if (defaultType === 'group')
+            return {group: itemId, prob};
+        } else {
+          return e;
+        }
+      }
+      const entries: Array<ItemEntry> = [].concat(
+        (item.items || []).map((i: ItemEntry) => readEntry(i, 'item')),
+        (item.groups || []).map((i: ItemEntry) => readEntry(i, 'group')),
+        item.entries || []
+      );
+      const totalProb = entries.reduce((t, e) => t + (e.prob != null ? e.prob : 100), 0)
+      entries.sort((b, a) => (a.prob != null ? a.prob : 100) - (b.prob != null ? b.prob : 100));
+      const comment = item.comment || item['//'];
+      return <div>
+        <div>{item.id}</div>
+        {comment != null ? <div><br/>{comment}</div> : null}
+        <ul>
+          {(item.subtype === 'collection' ? [{collection: entries}] : entries).map(e => renderItemGroupEntry(cddaData, e, totalProb))}
+        </ul>
+      </div>
+    }
+    case 'monstergroup': {
+      const monsters = [...(item.monsters || [])];
+      monsters.sort((a, b) => b.freq - a.freq);
+      const comment = item['//'] || item._comment;
+      const totalFreq = monsters.reduce((t, m) => t + m.freq, 0)
+      return <div>
+        <div>{item.name}</div>
+        {comment != null ? <div><br/>{comment}</div> : null}
+        {item.replace_monster_group ? <div><br/>Replaced by {item.new_monster_group_id} at time {item.replacement_time}</div> : null}
+        <ul>
+          {item.default != 'mon_null' ?
+            <li>{((1000 - totalFreq) / 1000 * 100).toFixed(1)}% {cddaData.monster[item.default].name} <span style={{color: 'gray'}}>({item.default})</span></li>
+            : null}
+          {monsters.map(mon => {
+            const pack = mon.pack_size ? ` x ${mon.pack_size[0]}-${mon.pack_size[1]}` : '';
+            const cost = `${mon.cost_multiplier}`;
+            return <li>{(mon.freq / 1000 * 100).toFixed(1)}% [{cost}] {cddaData.monster[mon.monster].name}{pack} <span style={{color: 'gray'}}>({mon.monster})</span></li>
+          })}
+        </ul>
+      </div>;
+    }
     default:
       return <div>
-        <pre style={{font: '16px Fixedsys'}}>{JSON.stringify(item, null, 2)}</pre>
+        <pre style={{font: '16px Fixedsys', whiteSpace: 'pre-wrap'}}>{JSON.stringify(item, null, 2)}</pre>
       </div>
   }
+}
+
+const renderItemGroupEntry = (cddaData: any, e: ItemEntry, totalProb: number): VNode => {
+  if (isItem(e)) {
+    const prob = (e.prob != null ? e.prob : 100) / totalProb;
+    return <li>{(prob * 100).toFixed(1)}% {cddaData.item[e.item].name}{renderItemMod(e)} <span style={{color: 'gray'}}>({e.item})</span></li>;
+  } else if (isGroup(e)) {
+    const prob = (e.prob != null ? e.prob : 100) / totalProb;
+    return <li>{(prob * 100).toFixed(1)}% Group: {e.group}{renderItemMod(e)}</li>;
+  } else if ('distribution' in e) {
+    const subTotalProb = e.distribution.reduce((t, e) => t + (e.prob != null ? e.prob : 100), 0)
+    const entries = [...e.distribution];
+    entries.sort((a, b) => (a.prob != null ? a.prob : 100) - (b.prob != null ? b.prob : 100)).reverse();
+    return <li>{`${((e.prob != null ? e.prob : 100) / totalProb * 100).toFixed(1)}% `}One of:{renderItemMod(e)}
+      <ul>
+        {entries.map(e => renderItemGroupEntry(cddaData, e, subTotalProb))}
+      </ul>
+    </li>
+  } else if ('collection' in e) {
+    const subTotalProb = 100;
+    const entries = [...e.collection];
+    entries.sort((a, b) => (a.prob != null ? a.prob : 100) - (b.prob != null ? b.prob : 100)).reverse();
+    return <li>{`${((e.prob != null ? e.prob : 100) / totalProb * 100).toFixed(1)}% `}Some of:{renderItemMod(e)}
+      <ul>
+        {entries.map(e => renderItemGroupEntry(cddaData, e, subTotalProb))}
+      </ul>
+    </li>
+  } else {
+    console.error("Unknown item entry", e);
+    return <li><pre>{JSON.stringify(e, null, 2)}</pre></li>
+  }
+}
+
+const formatRange = (r: number | [number, number]): string =>
+  typeof r === 'number' ? `${r}` : `${r[0]}-${r[1]}`
+
+const renderItemMod = (mod: ItemMod): string => {
+  const getRange = (k: 'charges' | 'damage' | 'count'): number | [number, number] | null =>
+    mod[k] != null
+    ? mod[k] as number | [number, number]
+    : ((mod as any)[`${k}-min`] != null && (mod as any)[`${k}-max`] != null)
+      ? [(mod as any)[`${k}-min`] as number, (mod as any)[`${k}-max`] as number]
+      : null;
+  const mods = [];
+  const charges = getRange('charges');
+  if (charges != null) {
+    mods.push(`${formatRange(charges)} charges`)
+  }
+  const damage = getRange('damage');
+  if (damage != null) {
+    mods.push(`damage ${formatRange(damage)}`)
+  }
+  const modsStr = mods.length ? ` [${mods.join(', ')}]` : ''
+
+  const count = getRange('count');
+  const countStr = count != null ? ` x ${formatRange(count)}` : '';
+
+  return [countStr, modsStr].join('')
 }
 
 function scrollIntoView(e: HTMLElement) {
