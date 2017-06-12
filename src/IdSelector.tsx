@@ -1,41 +1,55 @@
 import xs, { Stream } from 'xstream';
+import sampleCombine from 'xstream/extra/sampleCombine';
 import { VNode, DOMSource, li, input } from '@cycle/dom';
-import isolate from '@cycle/isolate';
 import { StateSource } from 'cycle-onionify';
 
-import { Sources, Sinks } from './interfaces';
-
-import * as fs from 'fs';
-import * as path from 'path';
-import * as electron from 'electron';
-import * as glob from 'glob';
-import * as stringify from 'json-beautify';
 import {filter} from 'fuzzaldrin';
 
-export function IdSelector(sources) {
-  const {onion: action$, choose$, cancel$} = intent(sources.DOM);
-  const vdom$ = view(sources.onion.state$);
+export type State = any;
 
-  const chosenId$ = xs.merge(cancel$.mapTo(null), choose$.map(_ => {
-    return sources.onion.state$
-      .filter(state => state.selectedIdx != null)
-      .take(1)
-      .map(state => computeVisibleItems(state)[state.selectedIdx])
-      .filter(item => item != null)
-      .map(item => item.type === 'monstergroup' ? item.name : item.id)
-  }).flatten());
+type Reducer = (state: State) => State | undefined;
 
-  return {
-    DOM: vdom$,
-    onion: action$,
-    choose: chosenId$
-  };
+export interface Sources {
+  DOM: DOMSource;
+  onion: StateSource<State>;
+};
+export interface Sinks {
+  DOM: Stream<VNode>;
+  onion: Stream<Reducer>;
+  choose: Stream<string | null>
+};
+
+type IdType = 'terrain' | 'furniture' | 'monstergroup' | 'item_group';
+
+export function IdSelector(cddaData: any, type: IdType, initialSearch: string, items: Array<any>): (sources: Sources) => Sinks {
+  return (sources: Sources): Sinks => {
+    const state$ = sources.onion.state$
+    const visibleItems = (search: string) => computeVisibleItems({type, items, search})
+    const {onion: action$, choose$, cancel$} = intent(initialSearch, visibleItems, sources.DOM);
+    const vdom$ = view(type, cddaData, visibleItems, state$);
+
+    const chosenId$ = xs.merge(
+      cancel$.mapTo(null),
+      choose$.compose(sampleCombine(state$))
+        .map(([_, s]) => s)
+        .filter(state => state.selectedIdx != null)
+        .map(state => visibleItems(state.search)[state.selectedIdx])
+        .filter(item => item != null)
+        .map(item => item.type === 'monstergroup' ? item.name as string : item.id as string)
+    ).take(1);
+
+    return {
+      DOM: vdom$,
+      onion: action$,
+      choose: chosenId$
+    };
+  }
 }
 
-function intent(DOM: DOMSource) {
+function intent(initialSearch: string, getVisibleItems: (search: string) => Array<any>, DOM: DOMSource) {
   const default$ = xs.of(prevState => {
     if (prevState == null) {
-      return { search: '' }
+      return { search: initialSearch, selectedIdx: 0 }
     } else return prevState;
   });
 
@@ -44,7 +58,8 @@ function intent(DOM: DOMSource) {
   const upDown$ = xs.merge(
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'ArrowDown').map(e => e.preventDefault()).mapTo(1),
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'ArrowUp').map(e => e.preventDefault()).mapTo(-1)
-  ).map(v => (state: any): any => ({...state, selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, computeVisibleItems(state).length - 1))}));
+  ).map(v => (state: any): any => ({...state,
+    selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, getVisibleItems(state.search).length - 1))}));
 
   const choose$ = xs.merge(
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'Enter'),
@@ -67,17 +82,18 @@ const computeVisibleItems = ({type, items, search}: {type: 'monstergroup' | 'ite
   return matching;
 }
 
-function view(state$: Stream<any>) {
-  return state$.filter(s => s.type != null).map(state => {
-    const visibleItems = computeVisibleItems(state);
-    const selectedItem = state.selectedIdx >= 0 ? visibleItems[state.selectedIdx] : undefined;
-    const key = state.type === 'monstergroup' ? 'name' : 'id';
+function view(type: IdType, cddaData: any, getVisibleItems: (search: string) => Array<any>, state$: Stream<any>) {
+  return state$.filter(s => s != null).map(state => {
+    const {search, selectedIdx} = state;
+    const visibleItems = getVisibleItems(search);
+    const selectedItem = selectedIdx >= 0 ? visibleItems[selectedIdx] : undefined;
+    const key = type === 'monstergroup' ? 'name' : 'id';
     return <div className='modal-background' style={{position: 'fixed', top: '0', bottom: '0', left: '0', right: '0', background: 'rgba(0, 0, 0, 0.5)'}}>
       <div style={{display: 'flex', position: 'fixed', top: '0px', left: '0px', background: 'black', border: '4px solid white', maxHeight: '100%'}}>
         <div className='list' style={{display: 'flex', flexDirection: 'column'}}>
           <div className='search'>
             {input('.search', {
-              props: {value: state.search},
+              props: {value: search},
               hook: {insert: ({elm}: {elm: HTMLInputElement}) => elm.focus()},
               style: {font: 'inherit', background: 'black', color: 'orange', outline: 'none', border: 'none'}
             })}
@@ -97,7 +113,7 @@ function view(state$: Stream<any>) {
         </div>
         <div className='info' style={{overflowY: 'auto'}}>
           {selectedItem
-            ? renderItem(state.cddaData, selectedItem)
+            ? renderItem(cddaData, selectedItem)
             : <div><em>Nothing selected</em></div>}
         </div>
       </div>
@@ -163,7 +179,7 @@ function renderItem(cddaData: any, item: any) {
           const [itemId, prob] = e;
           if (defaultType === 'item')
             return {item: itemId, prob};
-          else if (defaultType === 'group')
+          else
             return {group: itemId, prob};
         } else {
           return e;

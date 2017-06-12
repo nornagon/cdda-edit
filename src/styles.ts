@@ -14,6 +14,15 @@ namespace Styles {
       }
     }
   })
+
+  export const terrainList = style({
+    display: 'flex',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+  })
 }
 
 export default Styles;

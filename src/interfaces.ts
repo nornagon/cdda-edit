@@ -3,11 +3,13 @@ import { VNode, DOMSource } from '@cycle/dom';
 import { HTTPSource, RequestOptions } from '@cycle/http';
 
 export type Sources = {
-    DOM : DOMSource;
+    DOM: DOMSource;
+    electron: any;
 };
 
 export type RootSinks = {
-    DOM : Stream<VNode>;
+    DOM: Stream<VNode>;
+    electron: Stream<any>;
 };
 
 export type Sinks = Partial<RootSinks>;
