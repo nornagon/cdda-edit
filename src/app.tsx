@@ -87,10 +87,13 @@ function RootPicker(sources: AppSources): AppSinks {
   const pick$ = sources.DOM.select('button')
     .events('click')
     .mapTo({dialog: 'open', options: {properties: ['openDirectory']}});
-  const selectRoot$: Stream<Reducer> = sources.electron
+  const pathFromLocalStorage = localStorage.getItem('cddaRoot');
+  const initialRoot$ = pathFromLocalStorage != null ? xs.of(pathFromLocalStorage) : xs.empty();
+  const selectRoot$: Stream<Reducer> = xs.merge(sources.electron, initialRoot$.map(r => [r]))
     .map((e: any) => (state: AppState): AppState => {
       const cddaRoot = e[0];
       const cddaData = loadCDDAData(e[0])
+      localStorage.setItem('cddaRoot', cddaRoot)
       const tileset = cddaData.tilesets.find((x: any) => /ChestHoleTileset/.test(x.root))
       electron.remote.getCurrentWindow().setContentSize(tileset.config.tile_info[0].width * (24 + 13), tileset.config.tile_info[0].height * 24)
       return {
