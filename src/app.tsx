@@ -1,6 +1,7 @@
 import xs, { Stream } from 'xstream';
 import dropRepeats from 'xstream/extra/dropRepeats';
 import dropUntil from 'xstream/extra/dropUntil';
+import concat from 'xstream/extra/concat';
 import sampleCombine from 'xstream/extra/sampleCombine';
 import { VNode, DOMSource } from '@cycle/dom';
 import * as dom from '@cycle/dom';
@@ -196,7 +197,14 @@ function Main(sources: AppSources): AppSinks {
       };
     })
 
-  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, tabChange$);
+  const intermediateRect$ = mapSinks.drags.map(drag$ =>
+    concat(
+      drag$.map(d => (state: AppState): AppState => ({...state, intermediateRect: d})),
+      xs.of((state: AppState): AppState => ({...state, intermediateRect: null}))
+    )
+  ).flatten()
+
+  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$);
 
   const vdom$ = xs.combine(sources.onion.state$, selectedTab$, mapSinks.DOM || xs.empty(), tabSinks$.map(s => s.DOM || xs.empty()).flatten())
     .map(([state, selectedTab, mapVdom, tabVdom]) =>
@@ -313,7 +321,7 @@ function Mapg(sources: AppSources): AppSinks & {
     DOM: sources.onion.state$.map(state => {
       const {cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions} = state;
       return dom.thunk('canvas.mapgen', 'mainmap', renderMapgen,
-        [cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions, state.selectedZone]);
+        [cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions, state.selectedZone, state.intermediateRect]);
     }),
     onion: xs.merge(mouseState$),
     clicks: tileClicks$,

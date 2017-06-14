@@ -73,7 +73,8 @@ export function renderMapgen(
   mouseY: number | null,
   paletteTab: TabName,
   zoneOptions: ZoneOptions,
-  selectedZone: ['place_loot' | 'place_monsters', number] | null
+  selectedZone: ['place_loot' | 'place_monsters', number] | null,
+  intermediateRect: {down: {tx: number, ty: number}, current: {tx: number, ty: number}} | null
 ) {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
@@ -137,6 +138,15 @@ export function renderMapgen(
           ctx.lineWidth = 1
           ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
         });
+        if (intermediateRect != null) {
+          const xLo = Math.min(intermediateRect.down.tx, intermediateRect.current.tx)
+          const xHi = Math.max(intermediateRect.down.tx, intermediateRect.current.tx)
+          const yLo = Math.min(intermediateRect.down.ty, intermediateRect.current.ty)
+          const yHi = Math.max(intermediateRect.down.ty, intermediateRect.current.ty)
+          ctx.strokeStyle = "orange"
+          ctx.lineWidth = 1
+          ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
+        }
       } else if (zoneOptions.type === 'monsters') {
         (mapgen.object.place_monsters || []).forEach((mon: PlaceMonsters, idx: number) => {
           const {monster, x, y, chance, repeat} = mon;
