@@ -114,7 +114,7 @@ export function SymbolsTab(sources: AppSources): AppSinks {
   })
 
   return {
-    DOM: xs.combine(sources.onion.state$.debug('state').map(SymbolsTabView), selectorDom$).map((doms) => <span>{doms}</span>),
+    DOM: xs.combine(sources.onion.state$.map(SymbolsTabView), selectorDom$).map((doms) => <span>{doms}</span>),
     onion: xs.merge(selectSymbol$, addSymbol$, removeSymbol$, removeSymbolProperty$, editSymbol$, selectorReducers$),
   };
 }

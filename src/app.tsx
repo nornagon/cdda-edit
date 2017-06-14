@@ -1,5 +1,6 @@
 import xs, { Stream } from 'xstream';
 import dropRepeats from 'xstream/extra/dropRepeats';
+import dropUntil from 'xstream/extra/dropUntil';
 import sampleCombine from 'xstream/extra/sampleCombine';
 import { VNode, DOMSource } from '@cycle/dom';
 import * as dom from '@cycle/dom';
@@ -63,6 +64,7 @@ function between(first: Stream<any>, second: Stream<any>): <T>(source: Stream<T>
 
 export function App(sources: AppSources): AppSinks {
   const appSinks$ = sources.onion.state$
+    .debug('state')
     .startWith({cddaRoot: null})
     .map((state: AppState) => state.cddaRoot)
     .compose(dropRepeats())
@@ -134,26 +136,23 @@ function Main(sources: AppSources): AppSinks {
     .map(e => (e.target as HTMLElement).getAttribute('data-tab') as TabName)
   const tabChange$ = tab$.map(tab => (state: AppState): AppState => ({...state, paletteTab: tab}))
 
-  const tilePaint$ = mapSinks.drags
+  const tilePaint$ = xs.merge(mapSinks.drags.flatten().map(t => t.current), mapSinks.clicks)
     .compose(sampleCombine(sources.onion.state$))
     .filter(([_, state]) => state.paletteTab === 'map')
-    .map(([drag$, state]) => xs.combine(drag$.map(t => t.current), xs.of(state.selectedSymbolId)))
-    .flatten()
-    .map(([pos, symbol]) => (state: AppState): AppState => {
+    .map(([pos, _]) => (state: AppState): AppState => {
       const rows = [...state.mapgen.object.rows];
       const {tx, ty} = pos;
       if (rows[ty][tx] === state.selectedSymbolId)
         return state;
-      let row = rows[ty];
-      row = row.substring(0, tx) + state.selectedSymbolId + row.substring(tx+1)
-      rows[ty] = row
+      const row = rows[ty];
+      rows[ty] = row.substring(0, tx) + state.selectedSymbolId + row.substring(tx+1)
       return {...state, mapgen: {...state.mapgen, object: {...state.mapgen.object, rows}}}
     })
 
   const rect$ = mapSinks.drags
     .compose(sampleCombine(sources.onion.state$))
     .filter(([_, state]) => state.paletteTab === 'zone')
-    .map(s => s[0].last())
+    .map(s => s[0].last().replaceError(e => xs.empty()))
     .flatten()
 
   const makeZone = (zo: ZoneOptions, xRange: [number, number], yRange: [number, number]): any => {
@@ -164,19 +163,37 @@ function Main(sources: AppSources): AppSinks {
         return {monster: zo.groupId, chance: zo.chance, repeat: zo.repeat, x: xRange, y: yRange};
     }
   }
+  function within(x: number, y: number, xrange: Array<number> | number, yrange: Array<number> | number) {
+    const [xLo, xHi] = Array.isArray(xrange) ? [Math.min.apply(null, xrange), Math.max.apply(null, xrange)] : [xrange, xrange];
+    const [yLo, yHi] = Array.isArray(yrange) ? [Math.min.apply(null, yrange), Math.max.apply(null, yrange)] : [yrange, yrange];
+    return x >= xLo && x <= xHi && y >= yLo && y <= yHi;
+  }
 
-  const drawZone$: Stream<Reducer> = rect$.map(({down, current}) => (state: AppState): AppState => {
-    const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
-    return {...state,
-      mapgen: {...state.mapgen,
-        object: {...state.mapgen.object,
-          [zoneType]: [...(state.mapgen.object[zoneType] || []), makeZone(state.zoneOptions, [down.tx, current.tx], [down.ty, current.ty])]
-        }
-      }
-    };
+  const zoneClick$ = mapSinks.clicks
+    .compose(sampleCombine(sources.onion.state$))
+    .map(([pos, state]) => {
+      const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
+      return [zoneType, (state.mapgen.object[zoneType] || []).findIndex(z => within(pos.tx, pos.ty, z.x, z.y))] as ['place_loot' | 'place_monsters', number]
+    })
+    .map(sel => sel[1] >= 0 ? sel : null)
+
+  const selectZone$: Stream<Reducer> = zoneClick$.map((idx) => (state: AppState): AppState => {
+    return {...state, selectedZone: idx}
   })
 
-  const action$ = xs.merge(tilePaint$, drawZone$, tabChange$);
+  const drawZone$: Stream<Reducer> = rect$
+    .map(({down, current}) => (state: AppState): AppState => {
+      const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
+      return {...state,
+        mapgen: {...state.mapgen,
+          object: {...state.mapgen.object,
+            [zoneType]: [...(state.mapgen.object[zoneType] || []), makeZone(state.zoneOptions, [down.tx, current.tx], [down.ty, current.ty])]
+          }
+        }
+      };
+    })
+
+  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, tabChange$);
 
   const vdom$ = xs.combine(sources.onion.state$, selectedTab$, mapSinks.DOM || xs.empty(), tabSinks$.map(s => s.DOM || xs.empty()).flatten())
     .map(([state, selectedTab, mapVdom, tabVdom]) =>
@@ -229,7 +246,14 @@ function MainView(state: AppState, selectedTab: TabName, mapVdom: VNode, tabVdom
   </div>
 }
 
-function Mapg(sources: AppSources): AppSinks & {drags: Stream<Stream<{down: {tx: number, ty: number}, current: {tx: number, ty: number}}>>} {
+function dropUntilMatches<T>(pred: (t: T) => boolean): (s: Stream<T>) => Stream<T> {
+  return (s: Stream<T>) => s.compose(dropUntil(s.filter(pred)))
+}
+
+function Mapg(sources: AppSources): AppSinks & {
+  drags: Stream<Stream<{down: {tx: number, ty: number}, current: {tx: number, ty: number}}>>,
+  clicks: Stream<{tx: number, ty: number}>,
+} {
   const {DOM} = sources;
   const mousePos$: Stream<{x: number, y: number} | null> = xs.merge(
     DOM.select('canvas.mapgen').events('mousemove').map((e: MouseEvent) => ({x: e.offsetX, y: e.offsetY})),
@@ -249,21 +273,34 @@ function Mapg(sources: AppSources): AppSinks & {drags: Stream<Stream<{down: {tx:
     })
     .compose(dropRepeats(pointsAreEqual));
 
-
   const map = DOM.select('canvas.mapgen')
+  const mouseClick$ = map.events('mousedown')
+    .compose(sampleCombine(mousePos$))
+    .map(([_, tp]) => tp!)
+  const mouseDrags$ = mouseClick$.map(d =>
+    mousePos$
+      .startWith(d)
+      .filter(x => x != null)
+      .map((m: {x: number, y: number}) => ({down: d, current: m}))
+      .compose(dropUntilMatches((p: {current: {x: number, y: number}, down: {x: number, y: number}}) =>
+        Math.abs(p.current.x - p.down.x) >= 5 || Math.abs(p.current.y - p.down.y) >= 5
+      ))
+      .endWhen(xs.merge(map.events('mouseup'), DOM.select('document').events('blur')))
+  );
+  const mouseTileDrag$ = mouseDrags$.map(d =>
+    d.compose(sampleCombine(sources.onion.state$.map(s => s.tileset)))
+      .map(([pixelPos, tileset]) => {
+        const {current: {x: cx, y: cy}, down: {x: dx, y: dy}} = pixelPos;
+        const {config: {tile_info: [{width, height}]}} = tileset
+        return {
+          current: {tx: (cx / width)|0, ty: (cy / height)|0},
+          down: {tx: (dx / width)|0, ty: (dy / height)|0}
+        };
+      })
+  )
   const tileClicks$ = map.events('mousedown')
     .compose(sampleCombine(mouseTilePos$))
     .map(([_, tp]) => tp!) // always non-null because mousedown can't happen after mouseout but before mousemove
-  const drags = tileClicks$.map(d =>
-    mouseTilePos$
-      .startWith(d)
-      .filter(x => x != null)
-      .map((m: {tx: number, ty: number}) => ({
-        down: d,
-        current: m,
-      }))
-      .endWhen(xs.merge(map.events('mouseup'), DOM.select('document').events('blur')))
-  );
 
   const mouseState$: Stream<Reducer> = mouseTilePos$.map(pos => (state: AppState): AppState => (
     {...state, mouseX: pos != null ? pos.tx : null, mouseY: pos != null ? pos.ty : null}
@@ -273,9 +310,10 @@ function Mapg(sources: AppSources): AppSinks & {drags: Stream<Stream<{down: {tx:
     DOM: sources.onion.state$.map(state => {
       const {cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions} = state;
       return dom.thunk('canvas.mapgen', 'mainmap', renderMapgen,
-        [cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions]);
+        [cddaData, mapgen, tileset, mouseX, mouseY, paletteTab, zoneOptions, state.selectedZone]);
     }),
     onion: xs.merge(mouseState$),
-    drags,
+    clicks: tileClicks$,
+    drags: mouseTileDrag$,
   }
 }

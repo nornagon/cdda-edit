@@ -72,7 +72,8 @@ export function renderMapgen(
   mouseX: number | null,
   mouseY: number | null,
   paletteTab: TabName,
-  zoneOptions: ZoneOptions
+  zoneOptions: ZoneOptions,
+  selectedZone: ['place_loot' | 'place_monsters', number] | null
 ) {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
@@ -120,10 +121,14 @@ export function renderMapgen(
       }
     if (paletteTab === 'zone') {
       if (zoneOptions.type === 'loot') {
-        (mapgen.object.place_loot || []).forEach((loot: PlaceLoot) => {
+        (mapgen.object.place_loot || []).forEach((loot: PlaceLoot, idx: number) => {
           const {group, x, y, chance, repeat} = loot;
           const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
           const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
+          if (selectedZone && selectedZone[0] === 'place_loot' && selectedZone[1] === idx) {
+            ctx.fillStyle = "hsla(39, 100%, 50%, 0.5)"
+            ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
+          }
           if (mouseX != null && mouseY != null && within(mouseX, mouseY, x, y)) {
             ctx.fillStyle = "hsla(39, 100%, 50%, 0.5)"
             ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
@@ -133,10 +138,14 @@ export function renderMapgen(
           ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
         });
       } else if (zoneOptions.type === 'monsters') {
-        (mapgen.object.place_monsters || []).forEach((mon: PlaceMonsters) => {
+        (mapgen.object.place_monsters || []).forEach((mon: PlaceMonsters, idx: number) => {
           const {monster, x, y, chance, repeat} = mon;
           const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
           const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
+          if (selectedZone && selectedZone[0] === 'place_monsters' && selectedZone[1] === idx) {
+            ctx.fillStyle = "hsla(120, 100%, 25%, 0.5)"
+            ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
+          }
           if (mouseX != null && mouseY != null && within(mouseX, mouseY, x, y)) {
             ctx.fillStyle = "hsla(120, 100%, 25%, 0.5)"
             ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
