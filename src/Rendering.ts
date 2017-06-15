@@ -73,7 +73,7 @@ export function renderMapgen(
   mouseY: number | null,
   paletteTab: TabName,
   zoneOptions: ZoneOptions,
-  selectedZone: ['place_loot' | 'place_monsters', number] | null,
+  selectedZone: ['loot' | 'monsters', number] | null,
   intermediateRect: {down: {tx: number, ty: number}, current: {tx: number, ty: number}} | null
 ) {
   const {config, root} = tileset;
@@ -126,7 +126,7 @@ export function renderMapgen(
           const {group, x, y, chance, repeat} = loot;
           const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
           const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
-          if (selectedZone && selectedZone[0] === 'place_loot' && selectedZone[1] === idx) {
+          if (selectedZone && selectedZone[0] === 'loot' && selectedZone[1] === idx) {
             ctx.fillStyle = "hsla(39, 100%, 50%, 0.5)"
             ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
           }
@@ -152,7 +152,7 @@ export function renderMapgen(
           const {monster, x, y, chance, repeat} = mon;
           const [xLo, xHi] = Array.isArray(x) ? [Math.min.apply(null, x), Math.max.apply(null, x)] : [x, x];
           const [yLo, yHi] = Array.isArray(y) ? [Math.min.apply(null, y), Math.max.apply(null, y)] : [y, y];
-          if (selectedZone && selectedZone[0] === 'place_monsters' && selectedZone[1] === idx) {
+          if (selectedZone && selectedZone[0] === 'monsters' && selectedZone[1] === idx) {
             ctx.fillStyle = "hsla(120, 100%, 25%, 0.5)"
             ctx.fillRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1)
           }
@@ -164,6 +164,15 @@ export function renderMapgen(
           ctx.lineWidth = 1
           ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
         })
+        if (intermediateRect != null) {
+          const xLo = Math.min(intermediateRect.down.tx, intermediateRect.current.tx)
+          const xHi = Math.max(intermediateRect.down.tx, intermediateRect.current.tx)
+          const yLo = Math.min(intermediateRect.down.ty, intermediateRect.current.ty)
+          const yHi = Math.max(intermediateRect.down.ty, intermediateRect.current.ty)
+          ctx.strokeStyle = "green"
+          ctx.lineWidth = 1
+          ctx.strokeRect(tileWidth * xLo + 0.5, tileWidth * yLo + 0.5, tileWidth * (xHi - xLo + 1) - 1, tileHeight * (yHi - yLo + 1) - 1);
+        }
       }
     } else {
       if (mouseX != null && mouseY != null) {

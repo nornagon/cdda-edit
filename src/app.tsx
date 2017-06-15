@@ -24,17 +24,19 @@ export type Reducer = (prev: AppState) => AppState;
 
 export type TabName = "map" | "zone";
 
-export type AppState = {
-  cddaRoot?: string,
-  cddaData?: any,
-  mapgen: Mapgen,
-  tileset: any,
-  selectedSymbolId: string,
-  editing?: any,
-  mouseX: number | null,
-  mouseY: number | null,
-  paletteTab: TabName,
+export interface AppState {
+  cddaRoot?: string;
+  cddaData?: any;
+  mapgen: Mapgen;
+  tileset: any;
+  selectedSymbolId: string;
+  editing?: any;
+  mouseX: number | null;
+  mouseY: number | null;
+  paletteTab: TabName;
   zoneOptions: ZoneOptions;
+  selectedZone: ['loot' | 'monsters', number] | null;
+  intermediateRect: {current: {tx: number, ty: number}, down: {tx: number, ty: number}} | null;
 };
 
 export type ZoneOptions = LootZoneOptions | MonstersZoneOptions;
@@ -111,7 +113,9 @@ function RootPicker(sources: AppSources): AppSinks {
           groupId: "everyday_gear",
           chance: 100,
           repeat: 1,
-        }
+        },
+        intermediateRect: null,
+        selectedZone: null
       }
     });
   return {
@@ -177,12 +181,12 @@ function Main(sources: AppSources): AppSinks {
     .compose(sampleCombine(sources.onion.state$))
     .map(([pos, state]) => {
       const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
-      return [zoneType, (state.mapgen.object[zoneType] || []).findIndex(z => within(pos.tx, pos.ty, z.x, z.y))] as ['place_loot' | 'place_monsters', number]
+      return [state.zoneOptions.type, (state.mapgen.object[zoneType] || []).findIndex(z => within(pos.tx, pos.ty, z.x, z.y))] as ['loot' | 'monsters', number]
     })
     .map(sel => sel[1] >= 0 ? sel : null)
 
-  const selectZone$: Stream<Reducer> = zoneClick$.map((idx) => (state: AppState): AppState => {
-    return {...state, selectedZone: idx}
+  const selectZone$: Stream<Reducer> = zoneClick$.map((zoneId) => (state: AppState): AppState => {
+    return {...state, selectedZone: zoneId}
   })
 
   const drawZone$: Stream<Reducer> = rect$

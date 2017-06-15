@@ -77,5 +77,16 @@ function ZonesTabView(state: AppState): VNode {
     <div>
       Chance: {dom.input('.zoneChance', {attrs: {type: 'text'}, props: {value: zoneOptions.chance}})}
     </div>
+
+    {state.selectedZone ? <div>
+      Selected: <pre>{JSON.stringify(getSelectedZone(state), null, 2)}</pre>
+    </div> : null}
   </div>;
+}
+
+function getSelectedZone(state: AppState): ZoneOptions | null {
+  if (!state.selectedZone) return null;
+  const [type, idx] = state.selectedZone
+  const zoneType = `place_${type}` as 'place_loot' | 'place_monsters';
+  return (state.mapgen.object[zoneType] || [])[idx];
 }
