@@ -224,6 +224,13 @@ function Main(sources: AppSources): AppSinks {
 
   const clear$ = sources.DOM.select('.clear').events('click').filter(() => confirm("Unsaved changes will be lost. Proceed?")).mapTo((state: AppState): AppState => {
     return {...state, mapgen: { type: 'mapgen', method: 'json', object: { fill_ter: 't_rock', rows: Array.apply(null, Array(24)).map(() => '                        '), terrain: {}, furniture: {} } }}
+  });
+
+  const export$ = sources.DOM.select('.export').events('click').compose(sampleCombine(sources.onion.state$)).map(([_, state]) => state.mapgen).map(mapgen => {
+    return {
+      type: 'save',
+      data: stringify(mapgen, null, 2, 100)
+    };
   })
 
   const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$);
@@ -241,6 +248,7 @@ function Main(sources: AppSources): AppSinks {
   return {
     DOM: vdom$,
     onion: xs.merge(action$, mapSinks.onion, tabSinks$.map(t => t.onion).flatten()),
+    electron: xs.merge(export$)
   }
 }
 
@@ -259,21 +267,30 @@ function MainView(state: AppState, selectedTab: TabName, mapVdom: VNode, tabVdom
   return <div>
     <div style={{display: 'flex', flexDirection: 'row'}}>
       {mapVdom}
-      <div style={{marginLeft: `${tileset.config.tile_info[0].width}px`}}>
-        <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-          Hovered: {hovered ? describeHovered(hovered) : 'none'}
+      <div style={{marginLeft: `${tileset.config.tile_info[0].width}px`, display: 'flex', flexDirection: 'column'}}>
+        <div style={{flexGrow: '1'}}>
+          <div style={{height: '32px', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+            Hovered: {hovered ? describeHovered(hovered) : 'none'}
+          </div>
+          <ul className={`${Styles.tabs} ${Styles.terrainList}`}>
+            {["map", "zone"].map(tabName => {
+              const selected = tabName === selectedTab;
+              return dom.li('.tab',
+                {class: {selected},
+                 attrs: {'data-tab': tabName}},
+                [tabName]
+              );
+            })}
+          </ul>
+          {tabVdom}
         </div>
-        <ul className={`${Styles.tabs} ${Styles.terrainList}`}>
-          {["map", "zone"].map(tabName => {
-            const selected = tabName === selectedTab;
-            return dom.li('.tab',
-              {class: {selected},
-               attrs: {'data-tab': tabName}},
-              [tabName]
-            );
-          })}
-        </ul>
-        {tabVdom}
+        <div>
+          <button className='clear'>new</button>
+          {' '}
+          <button className='open'>open</button>
+          {' '}
+          <button className='export'>export</button>
+        </div>
       </div>
     </div>
   </div>

@@ -26,6 +26,21 @@ function electronDriver(req$) {
         },
         stop: () => {}
       });
+    } else if (msg.type === "save") {
+      return xs.create({
+        start: listener => {
+          electron.remote.dialog.showSaveDialog(electron.remote.getCurrentWindow(), msg.options, fileName => {
+            fs.writeFile(fileName, msg.data, err => {
+              if (err) {
+                listener.error(err);
+              } else {
+                listener.complete();
+              }
+            })
+          })
+        },
+        stop: () => {}
+      })
     } else if (msg.type === "writeFile") {
       return xs.create({
         start: listener => {
