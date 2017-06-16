@@ -44,14 +44,14 @@ export type ZoneOptions = LootZoneOptions | MonstersZoneOptions;
 export interface LootZoneOptions {
   type: "loot";
   groupId: string;
-  chance: number;
-  repeat: number;
+  chance: number | null;
+  repeat: [number] | [number, number] | null;
 };
 export interface MonstersZoneOptions {
   type: "monsters";
   groupId: string;
-  chance: number;
-  repeat: number;
+  chance: number | null;
+  repeat: [number] | [number, number] | null;
 };
 
 /**
@@ -112,7 +112,7 @@ function RootPicker(sources: AppSources): AppSinks {
           type: "loot",
           groupId: "everyday_gear",
           chance: 100,
-          repeat: 1,
+          repeat: [1],
         },
         intermediateRect: null,
         selectedZone: null
@@ -171,7 +171,8 @@ function Main(sources: AppSources): AppSinks {
         return {monster: zo.groupId, chance: zo.chance, repeat: zo.repeat, x: xRange, y: yRange};
     }
   }
-  function within(x: number, y: number, xrange: Array<number> | number, yrange: Array<number> | number) {
+
+  function within(x: number, y: number, xrange: [number, number] | [number] | number, yrange: [number, number] | [number] | number) {
     const [xLo, xHi] = Array.isArray(xrange) ? [Math.min.apply(null, xrange), Math.max.apply(null, xrange)] : [xrange, xrange];
     const [yLo, yHi] = Array.isArray(yrange) ? [Math.min.apply(null, yrange), Math.max.apply(null, yrange)] : [yrange, yrange];
     return x >= xLo && x <= xHi && y >= yLo && y <= yHi;
@@ -181,12 +182,25 @@ function Main(sources: AppSources): AppSinks {
     .compose(sampleCombine(sources.onion.state$))
     .map(([pos, state]) => {
       const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
-      return [state.zoneOptions.type, (state.mapgen.object[zoneType] || []).findIndex(z => within(pos.tx, pos.ty, z.x, z.y))] as ['loot' | 'monsters', number]
+      const things = (state.mapgen.object[zoneType] || []);
+      return [state.zoneOptions.type, things.findIndex(
+        (z: PlaceLoot | PlaceMonsters) => within(pos.tx, pos.ty, z.x, z.y)
+      )] as ['loot' | 'monsters', number]
     })
     .map(sel => sel[1] >= 0 ? sel : null)
 
   const selectZone$: Stream<Reducer> = zoneClick$.map((zoneId) => (state: AppState): AppState => {
-    return {...state, selectedZone: zoneId}
+    if (zoneId != null) {
+      const zoneType = zoneId[0] === 'loot' ? 'place_loot' : 'place_monsters';
+      const zone = (state.mapgen.object[zoneType] || [])[zoneId[1]]
+      const groupId = zone[(zoneId[0] === 'loot' ? 'group' : 'monster')] as string;
+      const zoneOptions = zoneId[0] === 'loot'
+        ? {type: 'loot', groupId: zone.group, repeat: zone.repeat || 1, chance: zone.chance} as LootZoneOptions
+        : {type: 'monsters', groupId: zone.monster, repeat: zone.repeat || 1, chance: zone.chance} as MonstersZoneOptions;
+      return {...state, selectedZone: zoneId, zoneOptions: zoneOptions}
+    } else {
+      return {...state, selectedZone: null}
+    }
   })
 
   const drawZone$: Stream<Reducer> = rect$
@@ -208,7 +222,11 @@ function Main(sources: AppSources): AppSinks {
     )
   ).flatten()
 
-  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$);
+  const clear$ = sources.DOM.select('.clear').events('click').filter(() => confirm("Unsaved changes will be lost. Proceed?")).mapTo((state: AppState): AppState => {
+    return {...state, mapgen: { type: 'mapgen', method: 'json', object: { fill_ter: 't_rock', rows: Array.apply(null, Array(24)).map(() => '                        '), terrain: {}, furniture: {} } }}
+  })
+
+  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$);
 
   const vdom$ = xs.combine(sources.onion.state$, selectedTab$, mapSinks.DOM || xs.empty(), tabSinks$.map(s => s.DOM || xs.empty()).flatten())
     .map(([state, selectedTab, mapVdom, tabVdom]) =>

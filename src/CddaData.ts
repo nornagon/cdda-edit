@@ -16,8 +16,20 @@ export interface MapgenObject {
   place_loot?: Array<PlaceLoot>;
   place_monsters?: Array<PlaceMonsters>;
 }
-export type PlaceLoot = any;
-export type PlaceMonsters = any;
+export type PlaceLoot = {
+  x: [number, number] | [number];
+  y: [number, number] | [number];
+  group: string;
+  chance?: number;
+  repeat?: number | [number] | [number, number];
+};
+export type PlaceMonsters = {
+  x: [number, number] | [number];
+  y: [number, number] | [number];
+  monster: string;
+  chance?: number;
+  repeat?: number | [number] | [number, number];
+};
 
 export interface CddaData {
   objects: Array<any>;

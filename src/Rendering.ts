@@ -95,6 +95,7 @@ export function renderMapgen(
   }
 
   function getSymbolFor(x: number, y: number) {
+    // these are `var` instead of `const` because v8 is bad at optimizing consts????
     var char = mapgen.object.rows[y][x];
     if (mapgen.object.furniture[char] != null) {
       var furniture = cddaData.furniture[mapgen.object.furniture[char]];

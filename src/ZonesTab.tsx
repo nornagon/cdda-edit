@@ -10,14 +10,29 @@ import Styles from './styles';
 
 import {AppSources, AppSinks, Reducer, AppState, ZoneOptions, LootZoneOptions, MonstersZoneOptions} from './app';
 
+const parseRange = (str: string): [number] | [number,number] | null => {
+  const m = /^\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(str)
+  if (!m) return null;
+  if (m[2]) {
+    return [parseInt(m[1]), parseInt(m[2])];
+  } else {
+    return [parseInt(m[1])];
+  }
+}
+
+const parsePositiveInteger = (str: string): number | null => {
+  if (/^\s*(\d+)\s*$/.test(str))
+    return Number(str);
+  return null;
+}
 
 export function ZonesTab(sources: AppSources): AppSinks {
   const {DOM} = sources;
   const changeZoneType$: Stream<Reducer> = DOM.select('.zoneType').events('change').map(e => (state: AppState): AppState => {
     const select = e.target as HTMLSelectElement;
     const newZoneOptions = {
-      loot: { type: 'loot', groupId: 'everyday_gear', chance: 100, repeat: 1 } as LootZoneOptions,
-      monsters: { type: 'monsters', groupId: 'GROUP_ZOMBIE', chance: 1, repeat: 1 } as MonstersZoneOptions
+      loot: { type: 'loot', groupId: 'everyday_gear', chance: 100, repeat: [1] } as LootZoneOptions,
+      monsters: { type: 'monsters', groupId: 'GROUP_ZOMBIE', chance: 1, repeat: [1] } as MonstersZoneOptions
     }[select.value as "loot" | "monsters"];
     return {...state, zoneOptions: newZoneOptions}
   })
@@ -42,24 +57,99 @@ export function ZonesTab(sources: AppSources): AppSinks {
   const selectorDom$ = selector$.map(s => concat(s.DOM.endWhen(s.choose), xs.of(null))).flatten().startWith(null)
   const selectorReducers$ = selector$.map(s => s.onion).flatten()
 
-  const editZoneGroup$ = selector$.map(s => s.choose).flatten().map(chosen => {
-    return (state: AppState): AppState => {
-      if (chosen == null) return state;
-      return {...state, zoneOptions: {...state.zoneOptions, groupId: chosen}};
-    }
+  const changeGroup$ = selector$.map(s => s.choose).flatten()
+  const changeRepeat$ =
+    DOM.select('.zoneRepeat').events('blur')
+      .map(e => (e.target as HTMLInputElement).value)
+      .map(v => parseRange(v) || ([1] as [number]))
+
+  const changeChance$ =
+    DOM.select('.zoneChance').events('blur')
+      .map(e => (e.target as HTMLInputElement).value)
+      .map(parsePositiveInteger)
+
+  const editZoneGroup$ = changeGroup$.map(chosen => (state: AppState): AppState => {
+    if (chosen == null) return state;
+    return {...state, zoneOptions: {...state.zoneOptions, groupId: chosen}};
   })
+
+  const updateSelectedZone = (state: AppState, mutate: (zone: object) => object): AppState => {
+    const {selectedZone} = state;
+    if (!selectedZone) return state;
+    const zoneType = selectedZone[0] === 'loot' ? 'place_loot' : 'place_monsters';
+    return {...state,
+      mapgen: {...state.mapgen,
+        object: {...state.mapgen.object,
+          [zoneType]: (state.mapgen.object[zoneType] || []).map((z, i) => i === selectedZone[1] ? mutate(z) : z)
+        }
+      }
+    }
+  }
+
+  const editSelectedZoneGroup$ = changeGroup$.filter(c => c != null).map(c => (state: AppState): AppState => {
+    const {selectedZone} = state;
+    if (!selectedZone) return state;
+    return updateSelectedZone(state, (a: object): object => {
+      switch (selectedZone[0]) {
+        case 'loot':
+          return {...a, group: c};
+        case 'monsters':
+          return {...a, monster: c};
+      }
+    });
+  })
+
+  const editRepeat$ = changeRepeat$.map(repeat => (state: AppState): AppState =>
+    ({...state, zoneOptions: {...state.zoneOptions, repeat: repeat}}))
+
+  const editSelectedZoneRepeat$ = changeRepeat$.map(repeat => (state: AppState): AppState => {
+    const {selectedZone} = state;
+    if (!selectedZone) return state;
+    return updateSelectedZone(state, (a: object): object => {
+      return {...a, repeat}
+    });
+  })
+
+  const editChance$ = changeChance$.map(chance => (state: AppState): AppState => {
+    return {...state, zoneOptions: {...state.zoneOptions, chance: chance == null ? (state.zoneOptions.type === 'loot' ? 100 : 1) : chance}}
+  })
+
+  const editSelectedZoneChance$ = changeChance$.map(chance => (state: AppState): AppState => {
+    const {selectedZone} = state;
+    if (!selectedZone) return state;
+    return updateSelectedZone(state, (a: object): object => {
+      return {...a, chance: chance == null ? (selectedZone[0] === 'loot' ? 100 : 1) : chance}
+    });
+  })
+
+  const deleteZone$ = DOM.select('.deleteZone').events('click')
+    .mapTo((state: AppState): AppState => {
+      const {selectedZone} = state;
+      if (!selectedZone) return state;
+      const zoneType = selectedZone[0] === 'loot' ? 'place_loot' : 'place_monsters';
+      return {...state,
+        selectedZone: null,
+        mapgen: {...state.mapgen,
+          object: {...state.mapgen.object,
+            [zoneType]: (state.mapgen.object[zoneType] || []).filter((_, i) => i !== selectedZone[1])
+          }
+        }
+      }
+    })
 
   return {
     DOM: xs.combine(
       sources.onion.state$.map(ZonesTabView),
       selectorDom$,
     ).map(doms => <span>{doms}</span>),
-    onion: xs.merge(changeZoneType$, editZoneGroup$, selectorReducers$),
+    onion: xs.merge(changeZoneType$, editZoneGroup$, selectorReducers$, deleteZone$, editRepeat$, editSelectedZoneGroup$, editSelectedZoneRepeat$, editChance$, editSelectedZoneChance$),
   }
 }
 
 function ZonesTabView(state: AppState): VNode {
   const {zoneOptions} = state;
+  const repeat = zoneOptions.repeat != null ? zoneOptions.repeat : 1;
+  const repeatRange = Array.isArray(repeat) ? repeat : [repeat];
   return <div>
     <div>
       Place:
@@ -72,21 +162,14 @@ function ZonesTabView(state: AppState): VNode {
       Group: {dom.button('.zoneGroup.selector', [zoneOptions.groupId])}
     </div>
     <div>
-      Repeat: {dom.input('.zoneRepeat', {attrs: {type: 'text'}, props: {value: zoneOptions.repeat}})}
+      Repeat: {dom.input('.zoneRepeat', {attrs: {type: 'text'}, props: {value: [repeatRange.join('-')] /* figure that one out, ha! */}})}
     </div>
     <div>
-      Chance: {dom.input('.zoneChance', {attrs: {type: 'text'}, props: {value: zoneOptions.chance}})}
+      Chance: {dom.input('.zoneChance', {attrs: {type: 'text'}, props: {value: [zoneOptions.chance]}})}
     </div>
 
     {state.selectedZone ? <div>
-      Selected: <pre>{JSON.stringify(getSelectedZone(state), null, 2)}</pre>
+      <button className="deleteZone">delete zone</button>
     </div> : null}
   </div>;
-}
-
-function getSelectedZone(state: AppState): ZoneOptions | null {
-  if (!state.selectedZone) return null;
-  const [type, idx] = state.selectedZone
-  const zoneType = `place_${type}` as 'place_loot' | 'place_monsters';
-  return (state.mapgen.object[zoneType] || [])[idx];
 }
