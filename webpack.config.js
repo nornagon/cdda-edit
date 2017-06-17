@@ -1,3 +1,5 @@
+const webpack = require('webpack');
+
 const { entryPoint, setOutput } = require('@webpack-blocks/webpack2');
 const path = require('path');
 
@@ -12,8 +14,12 @@ module.exports = {
         ]
     },
     output: {
-        filename: 'bundle.[hash].js',
+        //filename: 'bundle.[hash].js',
+        filename: 'index.js',
         path: appPath('build')
     },
+    plugins: [
+        new webpack.DefinePlugin({'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production')})
+    ],
     target: 'electron-main'
 };

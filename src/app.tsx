@@ -12,7 +12,7 @@ import { Sources, Sinks } from './interfaces';
 import {SymbolsTab} from './SymbolsTab';
 import {ZonesTab} from './ZonesTab';
 import Styles from './styles';
-import {CddaData, Mapgen, MapgenObject, PlaceLoot, PlaceMonsters, loadCDDAData} from './CddaData';
+import {CddaData, Mapgen, MapgenObject, PlaceLoot, PlaceMonsters, loadCDDAData, emptyMapgen} from './CddaData';
 import {renderMapgen} from './Rendering';
 
 import * as electron from 'electron';
@@ -97,12 +97,12 @@ function RootPicker(sources: AppSources): AppSinks {
       const cddaRoot = e[0];
       const cddaData = loadCDDAData(e[0])
       localStorage.setItem('cddaRoot', cddaRoot)
-      const tileset = cddaData.tilesets.find((x: any) => /ChestHoleTileset/.test(x.root))
+      const tileset = cddaData.tilesets.find((x: any) => /ChestHoleTileset$/.test(x.root))
       electron.remote.getCurrentWindow().setContentSize(tileset.config.tile_info[0].width * (24 + 13), tileset.config.tile_info[0].height * 24)
       return {
         cddaRoot,
         cddaData,
-        mapgen: cddaData.objects.filter((o: any) => o.type === 'mapgen')[25],
+        mapgen: emptyMapgen,
         tileset,
         selectedSymbolId: " ",
         mouseX: null,
@@ -223,7 +223,7 @@ function Main(sources: AppSources): AppSinks {
   ).flatten()
 
   const clear$ = sources.DOM.select('.clear').events('click').filter(() => confirm("Unsaved changes will be lost. Proceed?")).mapTo((state: AppState): AppState => {
-    return {...state, mapgen: { type: 'mapgen', method: 'json', object: { fill_ter: 't_rock', rows: Array.apply(null, Array(24)).map(() => '                        '), terrain: {}, furniture: {} } }}
+    return {...state, mapgen: emptyMapgen}
   });
 
   const export$ = sources.DOM.select('.export').events('click').compose(sampleCombine(sources.onion.state$)).map(([_, state]) => state.mapgen).map(mapgen => {

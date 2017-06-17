@@ -12,22 +12,25 @@ const url = require('url')
 let mainWindow
 
 function createWindow () {
-  BrowserWindow.addDevToolsExtension("/Users/nornagon/Library/Application Support/Google/Chrome/Default/Extensions/dfgplfmhhmdekalbpejekgfegkonjpfp/1.1.0_0")
   // Create the browser window.
   mainWindow = new BrowserWindow({width: 800, height: 600, resizable: false})
 
   // and load the index.html of the app.
-  mainWindow.loadURL(url.format(/*{
-    pathname: path.join(__dirname, 'electron-index.html'),
-    protocol: 'file:',
-    slashes: true
-  }*/
-    {
-      pathname: '/',
-      host: 'localhost:8080',
-      protocol: 'http:'
-    }
-  ))
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.loadURL(url.format(
+      {
+        pathname: '/',
+        host: 'localhost:8080',
+        protocol: 'http:'
+      }
+    ))
+  } else {
+    mainWindow.loadURL(url.format({
+      pathname: path.join(__dirname, 'build/index.html'),
+      protocol: 'file:',
+      slashes: true
+    }));
+  }
 
   // Open the DevTools.
   // mainWindow.webContents.openDevTools()

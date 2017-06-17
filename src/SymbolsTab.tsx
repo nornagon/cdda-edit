@@ -55,7 +55,7 @@ export function SymbolsTab(sources: AppSources): AppSinks {
           object: {...state.mapgen.object,
             terrain: newTerrain,
             furniture: newFurniture,
-            rows: state.mapgen.object.rows.map(row => row.replace(selectedSymbolId, ' '))
+            rows: state.mapgen.object.rows.map(row => row.split(selectedSymbolId).join(' '))
           }
         }
       }

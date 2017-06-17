@@ -92,3 +92,14 @@ export function loadCDDAData(root: string): CddaData {
 
   return {objects, terrain, furniture, tilesets, item_group, item, monstergroup, monster};
 }
+
+export const emptyMapgen: Mapgen = {
+  type: 'mapgen',
+  method: 'json',
+  object: {
+    fill_ter: 't_rock',
+    rows: Array.apply(null, Array(24)).map(() => '                        '),
+    terrain: {},
+    furniture: {}
+  }
+};
