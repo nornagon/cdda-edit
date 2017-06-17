@@ -31,7 +31,7 @@
     "build": "cycle-scripts build",
     "eject": "cycle-scripts eject",
     "clean": "cycle-scripts clean",
-    "electron": "electron electron-main.js",
+    "electron": "NODE_ENV=development electron electron-main.js",
     "pack": "build --dir",
     "dist": "build"
   },
@@ -39,6 +39,9 @@
     "appId": "net.nornagon.cddaedit",
     "mac": {
       "category": "public.app-category.games"
+    },
+    "win": {
+      "target": "portable"
     },
     "asar": false,
     "files": ["build/*", "electron-main.js", "package.json"]

@@ -47,14 +47,14 @@ export function IdSelector(cddaData: any, type: IdType, initialSearch: string, i
 }
 
 function intent(initialSearch: string, getVisibleItems: (search: string) => Array<any>, DOM: DOMSource) {
-  const default$ = xs.of(prevState => {
+  const default$ = xs.of((prevState: State | null): State => {
     if (prevState == null) {
       return { search: initialSearch, selectedIdx: 0 }
     } else return prevState;
   });
 
   const searchBox = DOM.select('.search input')
-  const search$ = searchBox.events('input').map(e => state => ({...state, search: e.target.value, selectedIdx: 0}));
+  const search$ = searchBox.events('input').map(e => (state: State): State => ({...state, search: (e.target as HTMLInputElement).value, selectedIdx: 0}));
   const upDown$ = xs.merge(
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'ArrowDown').map(e => e.preventDefault()).mapTo(1),
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'ArrowUp').map(e => e.preventDefault()).mapTo(-1)
@@ -69,11 +69,13 @@ function intent(initialSearch: string, getVisibleItems: (search: string) => Arra
     DOM.select('document').events('keydown').filter((e: KeyboardEvent) => e.key === 'Escape'),
     DOM.select('.modal-background').events('click').filter(e => e.target === e.currentTarget)
   )
-  const hover$ = DOM.select('.result').events('mouseover').map(e => state => {
-    return {...state, selectedIdx: Number(e.target.idx)};
+  const hover$ = DOM.select('.result').events('mouseover').map(e => (state: State): State => {
+    return {...state, selectedIdx: Number((e.target as any).idx)};
   });
 
-  return {onion: xs.merge(default$, search$, upDown$, hover$), choose$, cancel$};
+  const clear$ = xs.merge(choose$, cancel$).mapTo((state: State) => undefined)
+
+  return {onion: xs.merge(default$, search$, upDown$, hover$, clear$), choose$, cancel$};
 }
 
 const computeVisibleItems = ({type, items, search}: {type: 'monstergroup' | 'item_group' | 'terrain' | 'furniture', items: {[id: string]: any}, search: string}) => {

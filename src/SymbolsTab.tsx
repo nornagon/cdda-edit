@@ -32,11 +32,12 @@ export function SymbolsTab(sources: AppSources): AppSinks {
         alert("Oops! too many symbols")
         return state;
       }
+      const selectedSymbolTerrain = state.mapgen.object.terrain[state.selectedSymbolId] || state.mapgen.object.fill_ter;
       return {...state,
         mapgen: {...state.mapgen,
           object: {...state.mapgen.object,
             terrain: {...state.mapgen.object.terrain,
-              [symbolToUse]: "t_rock_floor"
+              [symbolToUse]: selectedSymbolTerrain
             }
           }
         },
