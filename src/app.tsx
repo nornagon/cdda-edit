@@ -242,6 +242,10 @@ function Main(sources: AppSources): AppSinks {
     )
   ).flatten()
 
+  const mapgenIdEdit$ = sources.DOM.select('.om_terrain').events('input')
+    .map(e => (e.target as HTMLInputElement).value)
+    .map(overmapId => (state: AppState): AppState => ({...state, mapgen: {...state.mapgen, om_terrain: [overmapId]}}))
+
   const clear$ = sources.DOM.select('.clear').events('click').filter(() => confirm("Unsaved changes will be lost. Proceed?")).mapTo((state: AppState): AppState => {
     return {...state, mapgen: emptyMapgen}
   });
@@ -254,7 +258,7 @@ function Main(sources: AppSources): AppSinks {
     } as ElectronMessage;
   })
 
-  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$);
+  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$, mapgenIdEdit$);
 
   const vdom$ = xs.combine(sources.onion.state$, selectedTab$, mapSinks.DOM || xs.empty(), tabSinks$.map(s => s.DOM || xs.empty()).flatten())
     .map(([state, selectedTab, mapVdom, tabVdom]) =>
@@ -306,11 +310,16 @@ function MainView(state: AppState, selectedTab: TabName, mapVdom: VNode, tabVdom
           {tabVdom}
         </div>
         <div>
-          <button className='clear'>new</button>
-          {' '}
-          <button className='open'>open</button>
-          {' '}
-          <button className='export'>export</button>
+          <div>
+            Overmap ID: {dom.input('.om_terrain', {attrs: {type: 'text'}, props: {value: state.mapgen.om_terrain[0]}})}
+          </div>
+          <div>
+            <button className='clear'>new</button>
+            {' '}
+            <button className='open'>open</button>
+            {' '}
+            <button className='export'>export</button>
+          </div>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ export interface Mapgen {
   type: "mapgen";
   object: MapgenObject;
   method: "json" | "lua";
+  om_terrain: string[]; // | string[][]
   weight?: number;
 }
 export interface MapgenObject {
@@ -96,6 +97,7 @@ export function loadCDDAData(root: string): CddaData {
 export const emptyMapgen: Mapgen = {
   type: 'mapgen',
   method: 'json',
+  om_terrain: ['house'],
   object: {
     fill_ter: 't_rock',
     rows: Array.apply(null, Array(24)).map(() => '                        '),
