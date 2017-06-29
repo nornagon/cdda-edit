@@ -44,6 +44,10 @@
       "target": "portable"
     },
     "asar": false,
-    "files": ["build/*", "electron-main.js", "package.json"]
+    "files": [
+      "build/*",
+      "electron-main.js",
+      "package.json"
+    ]
   }
 }

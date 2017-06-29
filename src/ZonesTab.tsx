@@ -80,7 +80,7 @@ export function ZonesTab(sources: AppSources): AppSinks {
     return {...state,
       mapgen: {...state.mapgen,
         object: {...state.mapgen.object,
-          [zoneType]: (state.mapgen.object[zoneType] || []).map((z, i) => i === selectedZone[1] ? mutate(z) : z)
+          [zoneType]: (state.mapgen.object[zoneType] || [] as any[]).map((z, i) => i === selectedZone[1] ? mutate(z) : z)
         }
       }
     }
@@ -131,7 +131,7 @@ export function ZonesTab(sources: AppSources): AppSinks {
         selectedZone: null,
         mapgen: {...state.mapgen,
           object: {...state.mapgen.object,
-            [zoneType]: (state.mapgen.object[zoneType] || []).filter((_, i) => i !== selectedZone[1])
+            [zoneType]: (state.mapgen.object[zoneType] || [] as any[]).filter((_, i) => i !== selectedZone[1])
           }
         }
       }

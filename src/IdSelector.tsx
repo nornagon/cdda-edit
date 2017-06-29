@@ -21,6 +21,12 @@ export interface Sinks {
 
 type IdType = 'terrain' | 'furniture' | 'monstergroup' | 'item_group';
 
+const computeVisibleItems = ({type, items, search}: {type: 'monstergroup' | 'item_group' | 'terrain' | 'furniture', items: {[id: string]: any}, search: string}) => {
+  const key = type === 'monstergroup' ? 'name' : 'id';
+  const matching = filter(Object.values(items), search || '', {key})
+  return matching;
+}
+
 export function IdSelector(cddaData: any, type: IdType, initialSearch: string, items: Array<any>): (sources: Sources) => Sinks {
   return (sources: Sources): Sinks => {
     const state$ = sources.onion.state$
@@ -46,7 +52,7 @@ export function IdSelector(cddaData: any, type: IdType, initialSearch: string, i
   }
 }
 
-function intent(initialSearch: string, getVisibleItems: (search: string) => Array<any>, DOM: DOMSource) {
+function intent(initialSearch: string, getVisibleItems: (search: string) => Array<any>, DOM: DOMSource): {onion: Stream<Reducer>, choose$: Stream<null>, cancel$: Stream<null>} {
   const default$ = xs.of((prevState: State | null): State => {
     if (prevState == null) {
       return { search: initialSearch, selectedIdx: 0 }
@@ -61,30 +67,24 @@ function intent(initialSearch: string, getVisibleItems: (search: string) => Arra
   ).map(v => (state: any): any => ({...state,
     selectedIdx: Math.max(0, Math.min((state.selectedIdx == null ? -1 : state.selectedIdx) + v, getVisibleItems(state.search).length - 1))}));
 
-  const choose$ = xs.merge(
+  const choose$: Stream<null> = xs.merge(
     searchBox.events('keydown').filter((e: KeyboardEvent) => e.key === 'Enter'),
     DOM.select('.result').events('click')
-  )
-  const cancel$ = xs.merge(
+  ).mapTo(null);
+  const cancel$: Stream<null> = xs.merge(
     DOM.select('document').events('keydown').filter((e: KeyboardEvent) => e.key === 'Escape'),
     DOM.select('.modal-background').events('click').filter(e => e.target === e.currentTarget)
-  )
-  const hover$ = DOM.select('.result').events('mouseover').map(e => (state: State): State => {
+  ).mapTo(null);
+  const hover$: Stream<Reducer> = DOM.select('.result').events('mouseover').map(e => (state: State): State => {
     return {...state, selectedIdx: Number((e.target as any).idx)};
   });
 
-  const clear$ = xs.merge(choose$, cancel$).mapTo((state: State) => undefined)
+  const clear$: Stream<Reducer> = xs.merge(choose$, cancel$).mapTo((state: State) => undefined)
 
   return {onion: xs.merge(default$, search$, upDown$, hover$, clear$), choose$, cancel$};
 }
 
-const computeVisibleItems = ({type, items, search}: {type: 'monstergroup' | 'item_group' | 'terrain' | 'furniture', items: {[id: string]: any}, search: string}) => {
-  const key = type === 'monstergroup' ? 'name' : 'id';
-  const matching = filter(Object.values(items), search || '', {key})
-  return matching;
-}
-
-function view(type: IdType, cddaData: any, getVisibleItems: (search: string) => Array<any>, state$: Stream<any>) {
+function view(type: IdType, cddaData: any, getVisibleItems: (search: string) => Array<any>, state$: Stream<any>): Stream<VNode> {
   return state$.filter(s => s != null).map(state => {
     const {search, selectedIdx} = state;
     const visibleItems = getVisibleItems(search);
@@ -147,9 +147,11 @@ type ItemEntry = (
   }
   | {
     distribution: Array<ItemEntry>,
+    prob?: number,
   }
   | {
-    collection: Array<ItemEntry>
+    collection: Array<ItemEntry>,
+    prob?: number,
   }
 ) & ItemMod;
 
@@ -159,8 +161,14 @@ function isItem(t: ItemEntry): t is {item: string, prob?: number} & ItemMod {
 function isGroup(t: ItemEntry): t is {group: string, prob?: number} & ItemMod {
   return 'group' in t;
 }
+function isCollection(t: ItemEntry): t is {collection: ItemEntry[]} & ItemMod {
+  return 'collection' in t;
+}
+function isDistribution(t: ItemEntry): t is {distribution: ItemEntry[]} & ItemMod {
+  return 'distribution' in t;
+}
 
-function renderItem(cddaData: any, item: any) {
+function renderItem(cddaData: any, item: any): VNode {
   switch (item.type) {
     case 'terrain':
       return <div>
@@ -213,7 +221,7 @@ function renderItem(cddaData: any, item: any) {
         {comment != null ? <div><br/>{comment}</div> : null}
         {item.replace_monster_group ? <div><br/>Replaced by {item.new_monster_group_id} at time {item.replacement_time}</div> : null}
         <ul>
-          {item.default != 'mon_null' ?
+          {item.default !== 'mon_null' ?
             <li>{((1000 - totalFreq) / 1000 * 100).toFixed(1)}% {cddaData.monster[item.default].name} <span style={{color: 'gray'}}>({item.default})</span></li>
             : null}
           {monsters.map(mon => {
@@ -231,29 +239,29 @@ function renderItem(cddaData: any, item: any) {
   }
 }
 
-const renderItemGroupEntry = (cddaData: any, e: ItemEntry, totalProb: number): VNode => {
+function renderItemGroupEntry(cddaData: any, e: ItemEntry, totalProb: number): VNode {
   if (isItem(e)) {
     const prob = (e.prob != null ? e.prob : 100) / totalProb;
     return <li>{(prob * 100).toFixed(1)}% {cddaData.item[e.item].name}{renderItemMod(e)} <span style={{color: 'gray'}}>({e.item})</span></li>;
   } else if (isGroup(e)) {
     const prob = (e.prob != null ? e.prob : 100) / totalProb;
     return <li>{(prob * 100).toFixed(1)}% Group: {e.group}{renderItemMod(e)}</li>;
-  } else if ('distribution' in e) {
-    const subTotalProb = e.distribution.reduce((t, e) => t + (e.prob != null ? e.prob : 100), 0)
+  } else if (isDistribution(e)) {
+    const subTotalProb = e.distribution.reduce((t, c) => t + (c.prob != null ? c.prob : 100), 0)
     const entries = [...e.distribution];
     entries.sort((a, b) => (a.prob != null ? a.prob : 100) - (b.prob != null ? b.prob : 100)).reverse();
     return <li>{`${((e.prob != null ? e.prob : 100) / totalProb * 100).toFixed(1)}% `}One of:{renderItemMod(e)}
       <ul>
-        {entries.map(e => renderItemGroupEntry(cddaData, e, subTotalProb))}
+        {entries.map(c => renderItemGroupEntry(cddaData, c, subTotalProb))}
       </ul>
     </li>
-  } else if ('collection' in e) {
+  } else if (isCollection(e)) {
     const subTotalProb = 100;
     const entries = [...e.collection];
     entries.sort((a, b) => (a.prob != null ? a.prob : 100) - (b.prob != null ? b.prob : 100)).reverse();
     return <li>{`${((e.prob != null ? e.prob : 100) / totalProb * 100).toFixed(1)}% `}Some of:{renderItemMod(e)}
       <ul>
-        {entries.map(e => renderItemGroupEntry(cddaData, e, subTotalProb))}
+        {entries.map(c => renderItemGroupEntry(cddaData, c, subTotalProb))}
       </ul>
     </li>
   } else {
@@ -265,7 +273,7 @@ const renderItemGroupEntry = (cddaData: any, e: ItemEntry, totalProb: number): V
 const formatRange = (r: number | [number, number]): string =>
   typeof r === 'number' ? `${r}` : `${r[0]}-${r[1]}`
 
-const renderItemMod = (mod: ItemMod): string => {
+function renderItemMod(mod: ItemMod): string {
   const getRange = (k: 'charges' | 'damage' | 'count'): number | [number, number] | null =>
     mod[k] != null
     ? mod[k] as number | [number, number]
@@ -289,7 +297,7 @@ const renderItemMod = (mod: ItemMod): string => {
   return [countStr, modsStr].join('')
 }
 
-function scrollIntoView(e: HTMLElement) {
+function scrollIntoView(e: HTMLElement): void {
   const {top, bottom} = e.getBoundingClientRect();
   if (!e.parentElement) return;
   const {top: parentTop, bottom: parentBottom} = e.parentElement.getBoundingClientRect();

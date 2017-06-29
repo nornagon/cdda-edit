@@ -160,7 +160,7 @@ function SymbolsTabView(state: AppState): VNode {
   </div>;
 }
 
-function renderTerrainButton(cddaData: any, tileset: any, symbolId: string, terrainId: string, furnitureId: string | null, selected: boolean) {
+function renderTerrainButton(cddaData: any, tileset: any, symbolId: string, terrainId: string, furnitureId: string | null, selected: boolean): VNode {
   return <label style={{cursor: 'pointer'}}>
     {dom.input('.terrain', {attrs: {type: 'radio'}, props: {checked: selected, symbolId}, style: {display: 'none'}})}
     {dom.thunk('canvas.terrainButton', symbolId, renderTile, [cddaData, tileset, terrainId, furnitureId, selected])}

@@ -8,7 +8,7 @@ import * as dom from '@cycle/dom';
 import isolate from '@cycle/isolate';
 import { StateSource } from 'cycle-onionify';
 
-import { Sources, Sinks } from './interfaces';
+import { Sources, Sinks, ElectronMessage } from './interfaces';
 import {SymbolsTab} from './SymbolsTab';
 import {ZonesTab} from './ZonesTab';
 import Styles from './styles';
@@ -68,10 +68,10 @@ function between(first: Stream<any>, second: Stream<any>): <T>(source: Stream<T>
 export function App(sources: AppSources): AppSinks {
   const appSinks$ = sources.onion.state$
     .debug('state')
-    .startWith({cddaRoot: null})
+    .startWith({cddaRoot: null} as any as AppState)
     .map((state: AppState) => state.cddaRoot)
     .compose(dropRepeats())
-    .map((cddaRoot: string | null) => {
+    .map((cddaRoot: string | undefined) => {
       if (cddaRoot == null) {
         return RootPicker(sources);
       } else {
@@ -81,7 +81,7 @@ export function App(sources: AppSources): AppSinks {
     .remember()
   return {
     onion: appSinks$.map((s: AppSinks) => s.onion).flatten(),
-    DOM: appSinks$.map((s: AppSinks) => s.DOM).flatten(),
+    DOM: appSinks$.map((s: AppSinks) => s.DOM || xs.empty()).flatten(),
     electron: appSinks$.map((s: AppSinks) => s.electron || xs.empty()).flatten()
   }
 }
@@ -89,7 +89,7 @@ export function App(sources: AppSources): AppSinks {
 function RootPicker(sources: AppSources): AppSinks {
   const pick$ = sources.DOM.select('button')
     .events('click')
-    .mapTo({dialog: 'open', options: {properties: ['openDirectory']}});
+    .mapTo({type: 'dialog', dialog: 'open', options: {properties: ['openDirectory']}} as ElectronMessage);
   const pathFromLocalStorage = localStorage.getItem('cddaRoot');
   const initialRoot$ = pathFromLocalStorage != null ? xs.of(pathFromLocalStorage) : xs.empty();
   const selectRoot$: Stream<Reducer> = xs.merge(sources.electron, initialRoot$.map(r => [r]))
@@ -172,7 +172,7 @@ function Main(sources: AppSources): AppSinks {
     }
   }
 
-  function within(x: number, y: number, xrange: [number, number] | [number] | number, yrange: [number, number] | [number] | number) {
+  function within(x: number, y: number, xrange: [number, number] | [number] | number, yrange: [number, number] | [number] | number): boolean {
     const [xLo, xHi] = Array.isArray(xrange) ? [Math.min.apply(null, xrange), Math.max.apply(null, xrange)] : [xrange, xrange];
     const [yLo, yHi] = Array.isArray(yrange) ? [Math.min.apply(null, yrange), Math.max.apply(null, yrange)] : [yrange, yrange];
     return x >= xLo && x <= xHi && y >= yLo && y <= yHi;
@@ -183,21 +183,41 @@ function Main(sources: AppSources): AppSinks {
     .map(([pos, state]) => {
       const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
       const things = (state.mapgen.object[zoneType] || []);
-      return [state.zoneOptions.type, things.findIndex(
-        (z: PlaceLoot | PlaceMonsters) => within(pos.tx, pos.ty, z.x, z.y)
-      )] as ['loot' | 'monsters', number]
+      const idx = (things as PlaceLoot[]).findIndex((z: PlaceLoot) => within(pos.tx, pos.ty, z.x, z.y))
+      return [state.zoneOptions.type, idx] as ['loot' | 'monsters', number]
     })
     .map(sel => sel[1] >= 0 ? sel : null)
 
   const selectZone$: Stream<Reducer> = zoneClick$.map((zoneId) => (state: AppState): AppState => {
     if (zoneId != null) {
-      const zoneType = zoneId[0] === 'loot' ? 'place_loot' : 'place_monsters';
-      const zone = (state.mapgen.object[zoneType] || [])[zoneId[1]]
-      const groupId = zone[(zoneId[0] === 'loot' ? 'group' : 'monster')] as string;
-      const zoneOptions = zoneId[0] === 'loot'
-        ? {type: 'loot', groupId: zone.group, repeat: zone.repeat || 1, chance: zone.chance} as LootZoneOptions
-        : {type: 'monsters', groupId: zone.monster, repeat: zone.repeat || 1, chance: zone.chance} as MonstersZoneOptions;
-      return {...state, selectedZone: zoneId, zoneOptions: zoneOptions}
+      const [zt, idx] = zoneId;
+      const zoneType = zt === 'loot' ? 'place_loot' : 'place_monsters';
+      const normalizeRepeat = (rep: number | [number] | [number, number] | undefined): [number] | [number, number] => {
+        if (typeof rep === 'number') return [rep];
+        else if (rep == null) return [1];
+        else return rep;
+      }
+      if (zt === 'loot') {
+        const zone = (state.mapgen.object.place_loot || [])[idx];
+        const zoneOptions: LootZoneOptions = {
+          type: 'loot',
+          groupId: zone.group,
+          repeat: normalizeRepeat(zone.repeat),
+          chance: zone.chance == null ? 100 : zone.chance,
+        };
+        return {...state, selectedZone: zoneId, zoneOptions};
+      } else if (zt === 'monsters') {
+        const zone = (state.mapgen.object.place_monsters || [])[idx];
+        const zoneOptions: MonstersZoneOptions = {
+          type: 'monsters',
+          groupId: zone.monster,
+          repeat: normalizeRepeat(zone.repeat),
+          chance: zone.chance == null ? 1 : zone.chance,
+        };
+        return {...state, selectedZone: zoneId, zoneOptions}
+      } else {
+        return {...state, selectedZone: null}
+      }
     } else {
       return {...state, selectedZone: null}
     }
@@ -228,9 +248,10 @@ function Main(sources: AppSources): AppSinks {
 
   const export$ = sources.DOM.select('.export').events('click').compose(sampleCombine(sources.onion.state$)).map(([_, state]) => state.mapgen).map(mapgen => {
     return {
-      type: 'save',
+      type: 'dialog',
+      dialog: 'save',
       data: stringify(mapgen, null, 2, 100)
-    };
+    } as ElectronMessage;
   })
 
   const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$);
@@ -311,7 +332,7 @@ function Mapg(sources: AppSources): AppSinks & {
   );
 
   const pointsAreEqual = (a: {tx: number, ty: number} | null, b: {tx: number, ty: number} | null) =>
-      (a == null && b == null) || (a != null && b != null && a.tx == b.tx && a.ty == b.ty);
+      (a == null && b == null) || (a != null && b != null && a.tx === b.tx && a.ty === b.ty);
 
   const mouseTilePos$: Stream<{tx: number, ty: number} | null> = mousePos$
     .compose(sampleCombine(sources.onion.state$.map(s => s.tileset)))

@@ -1,5 +1,5 @@
 import {CddaData, Mapgen, MapgenObject, PlaceLoot, PlaceMonsters, loadCDDAData} from './CddaData';
-import { canvas } from '@cycle/dom';
+import { canvas, VNode } from '@cycle/dom';
 import {TabName, ZoneOptions} from './app';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,7 +19,7 @@ const imageFromFile = (() => {
   }
 })()
 
-function within(x: number, y: number, xrange: Array<number> | number, yrange: Array<number> | number) {
+function within(x: number, y: number, xrange: Array<number> | number, yrange: Array<number> | number): boolean {
   const [xLo, xHi] = Array.isArray(xrange) ? [Math.min.apply(null, xrange), Math.max.apply(null, xrange)] : [xrange, xrange];
   const [yLo, yHi] = Array.isArray(yrange) ? [Math.min.apply(null, yrange), Math.max.apply(null, yrange)] : [yrange, yrange];
   return x >= xLo && x <= xHi && y >= yLo && y <= yHi;
@@ -45,7 +45,7 @@ WALL_SYMS.set((8|4|0|1), "\u00b9")
 WALL_SYMS.set((8|4|2|0), "\u00ca")
 WALL_SYMS.set((8|4|2|1), "\u00ce")
 
-function determineWallCorner(cddaData: CddaData, obj: MapgenObject, [tx, ty]: [number, number]) {
+function determineWallCorner(cddaData: CddaData, obj: MapgenObject, [tx, ty]: [number, number]): string {
   const terrainIdAt = (x: number, y: number): string =>
     (y in obj.rows && x >= 0 && x < obj.rows[y].length && obj.rows[y][x] in obj.terrain)
     ? obj.terrain[obj.rows[y][x]]
@@ -75,7 +75,7 @@ export function renderMapgen(
   zoneOptions: ZoneOptions,
   selectedZone: ['loot' | 'monsters', number] | null,
   intermediateRect: {down: {tx: number, ty: number}, current: {tx: number, ty: number}} | null
-) {
+): VNode {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
   const fallback = config['tiles-new'].find((x: any) => x.ascii != null)
@@ -89,13 +89,14 @@ export function renderMapgen(
   const height = mapgen.object.rows.length
   const width = mapgen.object.rows[0].length
 
-  function drawTile(ctx: CanvasRenderingContext2D, img: HTMLImageElement, offset: number, x: number, y: number) {
+  function drawTile(ctx: CanvasRenderingContext2D, img: HTMLImageElement, offset: number, x: number, y: number): void {
     const ix = offset % tilesPerRow, iy = Math.floor(offset / tilesPerRow);
     ctx.drawImage(img, ix * tileWidth, iy * tileHeight, tileWidth, tileHeight, x * tileWidth, y * tileHeight, tileWidth, tileHeight)
   }
 
-  function getSymbolFor(x: number, y: number) {
+  function getSymbolFor(x: number, y: number): {symbol: string, color: string} {
     // these are `var` instead of `const` because v8 is bad at optimizing consts????
+    /* tslint:disable */
     var char = mapgen.object.rows[y][x];
     if (mapgen.object.furniture[char] != null) {
       var furniture = cddaData.furniture[mapgen.object.furniture[char]];
@@ -107,10 +108,11 @@ export function renderMapgen(
     var isAutoWall = flags && flags.indexOf("AUTO_WALL_SYMBOL") >= 0;
     var oneColor = Array.isArray(color) ? color[0] : color;
     var sym = isAutoWall ? determineWallCorner(cddaData, mapgen.object, [x, y]) : symbol;
+    /* tslint:enable */
     return {symbol: sym, color: oneColor};
   }
 
-  function draw(ctx: CanvasRenderingContext2D) {
+  function draw(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = "black"
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
     for (let y = 0; y < height; y++)
@@ -201,7 +203,7 @@ export function renderMapgen(
   )
 }
 
-export function renderTile(cddaData: any, tileset: any, terrainId: string, furnitureId: string, selected: boolean) {
+export function renderTile(cddaData: any, tileset: any, terrainId: string, furnitureId: string, selected: boolean): VNode {
   const {config, root} = tileset;
   const {width: tileWidth, height: tileHeight} = config.tile_info[0]
   const fallback = config['tiles-new'].find((x: any) => 'ascii' in x)
@@ -213,12 +215,12 @@ export function renderTile(cddaData: any, tileset: any, terrainId: string, furni
   const tileImage = imageFromFile(path.join(root, fallback.file));
   const tilesPerRow = tileImage.width / tileWidth
 
-  function getSymbolFor(terrainId: string, furnitureId: string) {
-    if (furnitureId != null) {
-      const furniture = cddaData.furniture[furnitureId];
+  function getSymbolFor(tId: string, fId: string): {symbol: string, color: string} {
+    if (fId != null) {
+      const furniture = cddaData.furniture[fId];
       return {symbol: furniture.symbol, color: furniture.color || ""};
     }
-    const oneTerrainId = Array.isArray(terrainId) ? terrainId[0] : terrainId;
+    const oneTerrainId = Array.isArray(tId) ? tId[0] : tId;
     const {symbol, color, flags} = cddaData.terrain[oneTerrainId]
     const isAutoWall = flags && flags.indexOf("AUTO_WALL_SYMBOL") >= 0;
     const oneColor = Array.isArray(color) ? color[0] : color;
@@ -226,13 +228,13 @@ export function renderTile(cddaData: any, tileset: any, terrainId: string, furni
     return {symbol: sym, color: oneColor};
   }
 
-  function drawTile(ctx: CanvasRenderingContext2D, img: HTMLImageElement, offset: number, x: number, y: number) {
+  function drawTile(ctx: CanvasRenderingContext2D, img: HTMLImageElement, offset: number, x: number, y: number): void {
     const ix = offset % tilesPerRow, iy = Math.floor(offset / tilesPerRow);
     ctx.drawImage(img, ix * tileWidth, iy * tileHeight, tileWidth, tileHeight, x * tileWidth, y * tileHeight, tileWidth, tileHeight)
   }
 
 
-  function draw(ctx: CanvasRenderingContext2D) {
+  function draw(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = selected ? 'red' : 'black'
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
     const {symbol, color} = getSymbolFor(terrainId, furnitureId);
