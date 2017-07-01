@@ -226,12 +226,14 @@ function Main(sources: AppSources): AppSinks {
   const drawZone$: Stream<Reducer> = rect$
     .map(({down, current}) => (state: AppState): AppState => {
       const zoneType = `place_${state.zoneOptions.type}` as 'place_loot' | 'place_monsters';
+      const newZones = [...(state.mapgen.object[zoneType] || []), makeZone(state.zoneOptions, [down.tx, current.tx], [down.ty, current.ty])];
       return {...state,
         mapgen: {...state.mapgen,
           object: {...state.mapgen.object,
-            [zoneType]: [...(state.mapgen.object[zoneType] || []), makeZone(state.zoneOptions, [down.tx, current.tx], [down.ty, current.ty])]
+            [zoneType]: newZones
           }
-        }
+        },
+        selectedZone: [state.zoneOptions.type, newZones.length - 1]
       };
     })
 
