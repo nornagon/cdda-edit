@@ -7,6 +7,7 @@ import { VNode, DOMSource } from '@cycle/dom';
 import * as dom from '@cycle/dom';
 import isolate from '@cycle/isolate';
 import { StateSource } from 'cycle-onionify';
+import * as fs from 'fs';
 
 import { Sources, Sinks, ElectronMessage } from './interfaces';
 import {SymbolsTab} from './SymbolsTab';
@@ -252,15 +253,60 @@ function Main(sources: AppSources): AppSinks {
     return {...state, mapgen: emptyMapgen}
   });
 
+  const open$: Stream<ElectronMessage> = sources.DOM.select('.open').events('click')
+    .mapTo({type: 'dialog', dialog: 'open'} as ElectronMessage)
+
+  const loadFromFile$ = sources.electron.map(e => (state: AppState): AppState => {
+    if (e.length === 0) {
+      // User canceled.
+      return state;
+    }
+    try {
+      const mapgenFile = e[0];
+      const mapgenJson = JSON.parse(fs.readFileSync(mapgenFile).toString());
+      if (!Array.isArray(mapgenJson)) {
+        alert("Root of JSON must be an array.");
+        return state;
+      }
+      const mapgens = mapgenJson.filter(obj => obj.type === 'mapgen');
+      if (mapgens.length > 1) {
+        alert("CDDA-edit only supports one mapgen per file currently.")
+        return state;
+      }
+      const mapgen = mapgens[0];
+      if (mapgen.type !== 'mapgen') {
+        alert("This doesn't appear to be a JSON mapgen.")
+        return state;
+      }
+      if (mapgen.method !== 'json') {
+        alert("Can't edit a Lua mapgen! Don't be silly!")
+      }
+      // TODO: more checks that the mapgen JSON makes sense & is something we can handle
+      return {...state, mapgen};
+    } catch (e) {
+      alert("This doesn't look like a valid mapgen JSON file.")
+    }
+    return state;
+  })
+
   const export$ = sources.DOM.select('.export').events('click').compose(sampleCombine(sources.onion.state$)).map(([_, state]) => state.mapgen).map(mapgen => {
     return {
       type: 'dialog',
       dialog: 'save',
       data: stringify(mapgen, null, 2, 100)
     } as ElectronMessage;
-  })
+  });
 
-  const action$ = xs.merge(tilePaint$, drawZone$, selectZone$, intermediateRect$, tabChange$, clear$, mapgenIdEdit$);
+  const action$ = xs.merge(
+    tilePaint$,
+    drawZone$,
+    selectZone$,
+    intermediateRect$,
+    tabChange$,
+    clear$,
+    loadFromFile$,
+    mapgenIdEdit$
+  );
 
   const vdom$ = xs.combine(sources.onion.state$, selectedTab$, mapSinks.DOM || xs.empty(), tabSinks$.map(s => s.DOM || xs.empty()).flatten())
     .map(([state, selectedTab, mapVdom, tabVdom]) =>
@@ -275,7 +321,7 @@ function Main(sources: AppSources): AppSinks {
   return {
     DOM: vdom$,
     onion: xs.merge(action$, mapSinks.onion, tabSinks$.map(t => t.onion).flatten()),
-    electron: xs.merge(export$)
+    electron: xs.merge(export$, open$)
   }
 }
 

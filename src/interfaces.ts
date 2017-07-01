@@ -5,12 +5,12 @@ import { HTTPSource, RequestOptions } from '@cycle/http';
 export type ElectronOpenDialogMessage = {
   type: 'dialog',
   dialog: 'open',
-  options: any,
+  options?: any,
 }
 export type ElectronSaveDialogMessage = {
   type: 'dialog',
   dialog: 'save',
-  options: any,
+  options?: any,
   data: any,
 }
 export type ElectronMessage = ElectronOpenDialogMessage | ElectronSaveDialogMessage;

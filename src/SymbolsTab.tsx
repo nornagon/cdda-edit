@@ -129,7 +129,7 @@ function SymbolsTabView(state: AppState): VNode {
   };
   return <div>
     <ul className={`symbols ${Styles.terrainList}`}>
-      <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter, null, selectedSymbolId === ' ')}</li>
+      <li>{renderTerrainButton(cddaData, tileset, ' ', mapgen.object.fill_ter || 't_rock', null, selectedSymbolId === ' ')}</li>
       {terrains.map(tId =>
         <li>{renderTerrainButton(cddaData, tileset, tId, mapgen.object.terrain[tId], mapgen.object.furniture[tId], selectedSymbolId === tId)}</li>
       )}
