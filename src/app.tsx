@@ -293,7 +293,7 @@ function Main(sources: AppSources): AppSinks {
     return {
       type: 'dialog',
       dialog: 'save',
-      data: stringify(mapgen, null, 2, 100)
+      data: stringify([mapgen], null, 2, 100)
     } as ElectronMessage;
   });
 
