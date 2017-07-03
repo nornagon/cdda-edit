@@ -86,6 +86,8 @@ export function loadCDDAData(root: string): CddaData {
     "BIONIC_ITEM",
   ]);
   objects.filter((o: any) => itemTypes.has(o.type)).forEach((t: any) => item[t.id] = t);
+  // TODO: when item group editing is supported, we'll need to treat migration items differently.
+  objects.filter((o: any) => o.type === 'MIGRATION').forEach((t: any) => item[t.id] = item[t.replace]);
   const monstergroup: {[id: string]: any} = {};
   objects.filter((o: any) => o.type === 'monstergroup').forEach((t: any) => monstergroup[t.name] = t);
   const monster: {[id: string]: any} = {};
