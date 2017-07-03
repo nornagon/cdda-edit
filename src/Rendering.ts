@@ -262,6 +262,7 @@ function mapColor(color: string): string {
     case "ltred_green": return "RED-true"
     case "green": return "GREEN-false"
     case "ltgreen": return "GREEN-true"
+    case "light_green": return "GREEN-true"
     case "brown": return "YELLOW-false"
     case "blue": return "BLUE-false"
     case "magenta": return "MAGENTA-false"
