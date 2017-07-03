@@ -32,8 +32,8 @@
     "eject": "cycle-scripts eject",
     "clean": "cycle-scripts clean",
     "electron": "NODE_ENV=development electron electron-main.js",
-    "pack": "build --dir",
-    "dist": "build"
+    "pack": "NODE_ENV=production npm run build && build --dir",
+    "dist": "NODE_ENV=production npm run build && build -mwl"
   },
   "build": {
     "appId": "net.nornagon.cddaedit",
